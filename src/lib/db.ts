@@ -446,9 +446,40 @@ export const Database = {
   },
 
   updateUserStatus(userId: string, ativo: boolean): boolean {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
     const user = inMemoryCache.usuarios.find(u => u.id === userId);
     if (!user) return false;
+    
     setDoc(doc(firestoreDb, 'usuarios', userId), { ativo }, { merge: true });
+    
+    fetch(`/api/users/${user.companyId}/${userId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : ''
+      },
+      body: JSON.stringify({ ativo })
+    }).catch(err => console.error('Error updating user status via API:', err));
+
     return true;
+  },
+
+  async updateDelivery(id: string, updates: Partial<Entrega>): Promise<boolean> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      await setDoc(doc(firestoreDb, 'deliveries', id), updates, { merge: true });
+      fetch(`/api/deliveries/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(updates)
+      }).catch(err => console.error('Error updating delivery via API:', err));
+      return true;
+    } catch (err) {
+      console.error('Error updating delivery:', err);
+      return false;
+    }
   }
 };

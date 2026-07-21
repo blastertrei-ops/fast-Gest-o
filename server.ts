@@ -630,6 +630,30 @@ app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
+app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const updates = req.body;
+
+    const userRef = doc(firestoreDb, 'usuarios', userId);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    if (updates.senha) {
+      updates.senhaHash = hashPassword(updates.senha);
+      delete updates.senha;
+    }
+
+    await updateDoc(userRef, updates);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao atualizar usuário:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar usuário' });
+  }
+});
+
 // START EXPRESS & VITE SERVER
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
