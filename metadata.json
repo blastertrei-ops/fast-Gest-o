@@ -1,0 +1,6 @@
+{
+  "name": "Fast - Gestão de Entregas",
+  "description": "Sistema interno de gestão e acompanhamento de entregas com perfis de operador e entregador, comprovação por foto, GPS e assinatura digital.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
