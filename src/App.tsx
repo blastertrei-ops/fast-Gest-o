@@ -73,16 +73,25 @@ export default function App() {
     }
   }, []);
 
-  // Listen to cross-tab updates to make sure multi-tenant real-time sync is working perfectly
+  // Listen to real-time database updates across devices and tabs
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'fast_gestao_entregas_db' && currentUser) {
+    const unsubscribe = Database.subscribe(() => {
+      if (currentUser) {
         loadCompanyData(currentUser.companyId);
+      } else {
+        const session = Database.getCurrentSession();
+        if (session) {
+          setCurrentUser(session);
+          const comp = Database.getCompany(session.companyId);
+          if (comp) {
+            setCurrentCompany(comp);
+            loadCompanyData(session.companyId);
+          }
+        }
       }
-    };
-    window.addEventListener('storage', handleStorageChange);
+    });
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
+      unsubscribe();
     };
   }, [currentUser]);
 
