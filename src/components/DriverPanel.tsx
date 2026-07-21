@@ -73,13 +73,16 @@ export default function DriverPanel({
 
     console.log("=== DURANTE O FILTRO ===");
     const filtered = deliveries.filter(d => {
-      const isAssigned = d.entregadorId === currentUser.id;
+      const isAssigned = (d.entregadorId && d.entregadorId === currentUser.id) || 
+                         (currentUser.motoristaId && d.motoristaId === currentUser.motoristaId);
       const isValidStatus = (d.status === 'aguardando_motorista' || d.status === 'em_rota' || d.status === 'entregue' || d.status === 'nao_entregue');
       const isMatch = isAssigned && isValidStatus;
       
       console.log(`Entrega NF: ${d.numeroNF} (ID: ${d.id})`);
       console.log(`  entregadorId = ${d.entregadorId || 'undefined'}`);
+      console.log(`  motoristaId = ${d.motoristaId || 'undefined'}`);
       console.log(`  currentUser.id = ${currentUser.id}`);
+      console.log(`  currentUser.motoristaId = ${currentUser.motoristaId || 'undefined'}`);
       console.log(`  status = ${d.status}`);
       console.log(`  Resultado = ${isMatch ? 'TRUE' : 'FALSE'}`);
       
@@ -102,7 +105,7 @@ export default function DriverPanel({
       }
       return 0;
     });
-  }, [deliveries, currentUser.motoristaId]);
+  }, [deliveries, currentUser]);
 
   const formatCurrency = (val: number) => {
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });

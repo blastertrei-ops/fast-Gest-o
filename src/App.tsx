@@ -300,33 +300,10 @@ export default function App() {
     Database.saveDeliveries(currentUser.companyId, updated);
   };
 
-  const handleAddDriver = (newDrv: Omit<Motorista, 'id' | 'companyId' | 'criadoEm'>) => {
+  const handleAddDriver = async (newDrv: Omit<Motorista, 'id' | 'companyId' | 'criadoEm'>) => {
     if (!currentUser || !currentCompany) return;
 
-    const drvId = 'mot_' + (drivers.length + 1);
-    const fullDriver: Motorista = {
-      ...newDrv,
-      id: drvId,
-      companyId: currentUser.companyId,
-      criadoEm: new Date().toISOString()
-    };
-    
-    const updated = [...drivers, fullDriver];
-    Database.saveDrivers(currentUser.companyId, updated);
-
-    // Auto-create a login account for this driver if they have an email assigned
-    if (newDrv.email) {
-      Database.createUser(
-        currentUser.companyId,
-        newDrv.nome,
-        newDrv.email,
-        '123456', // Default password for new drivers, they can change it
-        'motorista',
-        drvId
-      ).then(() => {
-        setUsers(Database.getUsers(currentUser.companyId));
-      });
-    }
+    await Database.createDriver(currentUser.companyId, newDrv);
 
     // Reload both from database to keep in-memory state perfectly updated and synchronized
     setDrivers(Database.getDrivers(currentUser.companyId));

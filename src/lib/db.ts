@@ -297,16 +297,34 @@ export const Database = {
     return inMemoryCache.usuarios.filter(u => u.companyId === companyId);
   },
 
-  // Data Writing to Firestore
+  // Data Writing to Firestore & Express API Central Database
   saveDeliveries(companyId: string, deliveries: Entrega[]) {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
     deliveries.forEach(del => {
       setDoc(doc(firestoreDb, 'deliveries', del.id), { ...del, companyId });
+      fetch(`/api/deliveries/${companyId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(del)
+      }).catch(err => console.error('Error syncing delivery via API:', err));
     });
   },
 
   saveDrivers(companyId: string, drivers: Motorista[]) {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
     drivers.forEach(drv => {
       setDoc(doc(firestoreDb, 'drivers', drv.id), { ...drv, companyId });
+      fetch(`/api/drivers/${companyId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(drv)
+      }).catch(err => console.error('Error syncing driver via API:', err));
     });
   },
 
@@ -320,6 +338,60 @@ export const Database = {
     users.forEach(usr => {
       setDoc(doc(firestoreDb, 'usuarios', usr.id), { ...usr, companyId });
     });
+  },
+
+  // Driver Creation via Express API + Firestore
+  async createDriver(companyId: string, driverData: Omit<Motorista, 'id' | 'companyId' | 'criadoEm'>): Promise<{ success: boolean; driver?: Motorista; user?: Usuario; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    const driverId = 'drv_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const fullDriver: Motorista = {
+      ...driverData,
+      id: driverId,
+      companyId,
+      criadoEm: new Date().toISOString()
+    };
+
+    try {
+      // 1. Create Driver via Express API
+      const response = await fetch(`/api/drivers/${companyId}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(fullDriver)
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        await setDoc(doc(firestoreDb, 'drivers', driverId), fullDriver);
+      }
+
+      // 2. If email provided, create user account via Express API
+      let createdUser: Usuario | undefined;
+      if (driverData.email) {
+        const userRes = await this.createUser(
+          companyId,
+          driverData.nome,
+          driverData.email,
+          '123456', // Default password
+          'motorista',
+          driverId
+        );
+        if (userRes.success) {
+          createdUser = userRes.user;
+        }
+      }
+
+      return { success: true, driver: data.driver || fullDriver, user: createdUser };
+    } catch (err) {
+      console.error('Error creating driver via API, falling back to client SDK:', err);
+      await setDoc(doc(firestoreDb, 'drivers', driverId), fullDriver);
+      if (driverData.email) {
+        await this.createUser(companyId, driverData.nome, driverData.email, '123456', 'motorista', driverId);
+      }
+      return { success: true, driver: fullDriver };
+    }
   },
 
   // Admin User Creation (For operators / drivers) via API + Firestore
