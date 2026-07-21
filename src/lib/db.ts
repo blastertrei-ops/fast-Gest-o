@@ -12,7 +12,7 @@ import {
 import { db as firestoreDb } from './firebase';
 import { Empresa, Usuario, Motorista, Veiculo, Entrega, EntregaStatus, HistoricoStatus, UserRole } from '../types';
 
-// Simple hashing function for password validation
+// Simple hashing function for fallback password validation
 export function hashPassword(password: string): string {
   let hash = 0;
   for (let i = 0; i < password.length; i++) {
@@ -28,7 +28,7 @@ export function generateId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).substring(2, 11)}`;
 }
 
-// JWT Token session key
+// JWT Token session key - ONLY key stored in LocalStorage
 const JWT_TOKEN_KEY = 'fast_jwt_token';
 
 // In-Memory cache fed by real-time Firestore onSnapshot listeners
@@ -42,137 +42,6 @@ const inMemoryCache = {
   listenersInitialized: false,
   subscribers: new Set<() => void>()
 };
-
-// Seed initial database in Firestore if empty
-async function seedFirestoreIfNeeded() {
-  try {
-    const empSnap = await getDocs(collection(firestoreDb, 'empresas'));
-    if (empSnap.empty) {
-      const companyId = 'emp_teste_001';
-      const company: Empresa = {
-        id: companyId,
-        nome: 'Empresa Teste Logística',
-        criadoEm: new Date().toISOString()
-      };
-
-      const masterUser: Usuario = {
-        id: 'usr_master_001',
-        companyId,
-        nome: 'Administrador Master',
-        email: 'master@fastlog.com',
-        senhaHash: hashPassword('123456'),
-        telefone: '(11) 99999-9999',
-        role: 'master',
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-
-      const adminUser: Usuario = {
-        id: 'usr_admin_001',
-        companyId,
-        nome: 'Administrador Empresa',
-        email: 'admin@empresa.com',
-        senhaHash: hashPassword('123456'),
-        telefone: '(11) 98888-8888',
-        role: 'admin',
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-
-      const driverId = 'drv_mateus_001';
-      const driverUser: Usuario = {
-        id: 'usr_mateus_001',
-        companyId,
-        nome: 'Mateus Entregador',
-        email: 'mateus@empresa.com',
-        senhaHash: hashPassword('123456'),
-        telefone: '(11) 97777-7777',
-        role: 'motorista',
-        motoristaId: driverId,
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-
-      const driver: Motorista = {
-        id: driverId,
-        userId: driverUser.id,
-        companyId,
-        nome: 'Mateus Entregador',
-        cpf: '123.456.789-00',
-        telefone: '(11) 98888-7777',
-        email: 'mateus@empresa.com',
-        cnh: '12345678900',
-        categoriaCNH: 'B',
-        validadeCNH: '2028-12-31',
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-
-      const vehicle: Veiculo = {
-        id: 'vec_001',
-        companyId,
-        placa: 'ABC-1234',
-        modelo: 'Fiorino 1.4 EVO',
-        tipo: 'van',
-        ativo: true
-      };
-
-      const delivery: Entrega = {
-        id: 'ent_001',
-        companyId,
-        numeroNF: '1001',
-        numeroPedido: 'PED-5001',
-        cliente: {
-          nome: 'Cliente Teste Mercado S.A.',
-          telefone: '(11) 97777-6666'
-        },
-        endereco: {
-          ruaNumero: 'Av. Paulista',
-          numero: '1500',
-          bairro: 'Bela Vista',
-          cidade: 'São Paulo',
-          cep: '01310-200',
-          latitude: -23.5615,
-          longitude: -46.6560
-        },
-        volumes: 2,
-        valorVenda: 250.00,
-        formaPagamento: 'pix',
-        statusPagamento: 'pago',
-        status: 'aguardando_motorista',
-        motoristaId: driverId,
-        entregadorId: driverUser.id,
-        entregadorNome: driver.nome,
-        dataEntregaPrevista: new Date().toISOString().split('T')[0],
-        prioridade: 'media',
-        criadoPor: adminUser.nome,
-        criadoEm: new Date().toISOString(),
-        atualizadoEm: new Date().toISOString(),
-        origem: 'manual',
-        historico: [
-          {
-            id: 'hist_001',
-            statusAnterior: 'venda_realizada',
-            statusNovo: 'aguardando_motorista',
-            alteradoPor: adminUser.nome,
-            alteradoEm: new Date().toISOString(),
-            motivo: 'Pedido criado e atribuído ao entregador Mateus'
-          }
-        ]
-      };
-
-      await setDoc(doc(firestoreDb, 'empresas', companyId), company);
-      await setDoc(doc(firestoreDb, 'usuarios', masterUser.id), masterUser);
-      await setDoc(doc(firestoreDb, 'usuarios', adminUser.id), adminUser);
-      await setDoc(doc(firestoreDb, 'usuarios', driverUser.id), driverUser);
-      await setDoc(doc(firestoreDb, 'drivers', driverId), driver);
-      await setDoc(doc(firestoreDb, 'vehicles', vehicle.id), vehicle);
-      await setDoc(doc(firestoreDb, 'deliveries', delivery.id), delivery);
-    }
-  } catch (err) {
-    console.error('Error seeding Firestore:', err);
-  }
-}
 
 // Setup real-time listeners for instant multi-device synchronization
 function setupRealtimeListeners() {
@@ -239,8 +108,8 @@ function notifySubscribers() {
   inMemoryCache.subscribers.forEach(callback => callback());
 }
 
-// Trigger initial seed and real-time listeners
-seedFirestoreIfNeeded().then(() => setupRealtimeListeners());
+// Trigger real-time listeners initialization
+setupRealtimeListeners();
 
 export const Database = {
   // Subscribe to real-time database changes across all devices
@@ -253,6 +122,7 @@ export const Database = {
   clearAll() {
     localStorage.removeItem(JWT_TOKEN_KEY);
     inMemoryCache.activeSession = null;
+    notifySubscribers();
   },
 
   // Get current session user from JWT token
@@ -282,86 +152,84 @@ export const Database = {
     return null;
   },
 
-  setCurrentSession(user: Usuario | null) {
+  setCurrentSession(user: Usuario | null, token?: string) {
     inMemoryCache.activeSession = user;
-    if (user) {
-      // Create lightweight JWT token for session
-      const header = window.btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-      const payload = window.btoa(JSON.stringify({ 
-        userId: user.id, 
-        email: user.email, 
-        role: user.role, 
-        companyId: user.companyId,
-        exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60)
-      }));
-      const mockSignature = 'signature';
-      const token = `${header}.${payload}.${mockSignature}`;
+    if (token) {
       localStorage.setItem(JWT_TOKEN_KEY, token);
-    } else {
+    } else if (!user) {
       localStorage.removeItem(JWT_TOKEN_KEY);
     }
   },
 
-  // Auth Functions with Firestore Real-Time Persistence
-  login(email: string, password: string): { success: boolean; user?: Usuario; error?: string } {
-    const cleanEmail = email.trim().toLowerCase();
-    const user = inMemoryCache.usuarios.find(u => u.email === cleanEmail);
+  // Auth Functions - Central API Authentication with Backend / Firestore
+  async login(email: string, password: string): Promise<{ success: boolean; user?: Usuario; token?: string; error?: string }> {
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await response.json();
 
-    if (!user) {
-      return { success: false, error: 'E-mail ou senha incorretos' };
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'E-mail ou senha incorretos' };
+      }
+
+      // Save ONLY the JWT token in LocalStorage
+      localStorage.setItem(JWT_TOKEN_KEY, data.token);
+      inMemoryCache.activeSession = data.user;
+      notifySubscribers();
+
+      return { success: true, user: data.user, token: data.token };
+    } catch (err) {
+      console.error('Error connecting to login API, attempting direct Firestore query:', err);
+      // Client-side fallback if server API is unavailable
+      const cleanEmail = email.trim().toLowerCase();
+      const q = query(collection(firestoreDb, 'usuarios'), where('email', '==', cleanEmail));
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        return { success: false, error: 'E-mail ou senha incorretos' };
+      }
+
+      const user = snap.docs[0].data() as Usuario;
+      if (!user.ativo) {
+        return { success: false, error: 'Sua conta está inativa. Contate o administrador.' };
+      }
+
+      if (user.senhaHash !== hashPassword(password)) {
+        return { success: false, error: 'E-mail ou senha incorretos' };
+      }
+
+      inMemoryCache.activeSession = user;
+      notifySubscribers();
+      return { success: true, user };
     }
-
-    if (!user.ativo) {
-      return { success: false, error: 'Sua conta está inativa. Contate o administrador.' };
-    }
-
-    const hashed = hashPassword(password);
-    if (user.senhaHash !== hashed) {
-      return { success: false, error: 'E-mail ou senha incorretos' };
-    }
-
-    // Update last login in Firestore
-    const updatedUser = { ...user, ultimoLogin: new Date().toISOString() };
-    setDoc(doc(firestoreDb, 'usuarios', user.id), updatedUser, { merge: true });
-
-    this.setCurrentSession(updatedUser);
-    return { success: true, user: updatedUser };
   },
 
-  registerCompany(companyName: string, adminName: string, adminEmail: string, adminPassword: string, adminPhone: string): { success: boolean; user?: Usuario; error?: string } {
-    const cleanEmail = adminEmail.trim().toLowerCase();
+  async registerCompany(companyName: string, adminName: string, adminEmail: string, adminPassword: string, adminPhone: string): Promise<{ success: boolean; user?: Usuario; token?: string; error?: string }> {
+    try {
+      const response = await fetch('/api/auth/register-company', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyName, adminName, adminEmail, adminPassword, adminPhone })
+      });
+      const data = await response.json();
 
-    const exists = inMemoryCache.usuarios.find(u => u.email === cleanEmail);
-    if (exists) {
-      return { success: false, error: 'E-mail já cadastrado no sistema.' };
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'Erro ao registrar empresa' };
+      }
+
+      // Save ONLY the JWT token in LocalStorage
+      localStorage.setItem(JWT_TOKEN_KEY, data.token);
+      inMemoryCache.activeSession = data.user;
+      notifySubscribers();
+
+      return { success: true, user: data.user, token: data.token };
+    } catch (err) {
+      console.error('Error during company registration:', err);
+      return { success: false, error: 'Erro de conexão ao registrar empresa' };
     }
-
-    const companyId = generateId('emp');
-    const newCompany: Empresa = {
-      id: companyId,
-      nome: companyName,
-      criadoEm: new Date().toISOString()
-    };
-
-    const adminId = generateId('usr');
-    const newAdmin: Usuario = {
-      id: adminId,
-      companyId,
-      nome: adminName,
-      email: cleanEmail,
-      senhaHash: hashPassword(adminPassword),
-      telefone: adminPhone,
-      role: 'admin',
-      ativo: true,
-      criadoEm: new Date().toISOString()
-    };
-
-    // Save to real Firestore DB
-    setDoc(doc(firestoreDb, 'empresas', companyId), newCompany);
-    setDoc(doc(firestoreDb, 'usuarios', adminId), newAdmin);
-
-    this.setCurrentSession(newAdmin);
-    return { success: true, user: newAdmin };
   },
 
   recoverPassword(email: string): { success: boolean; message: string } {
@@ -401,7 +269,8 @@ export const Database = {
     setDoc(doc(firestoreDb, 'usuarios', userId), updates, { merge: true });
 
     if (inMemoryCache.activeSession && inMemoryCache.activeSession.id === userId) {
-      this.setCurrentSession({ ...inMemoryCache.activeSession, ...updates });
+      inMemoryCache.activeSession = { ...inMemoryCache.activeSession, ...updates };
+      notifySubscribers();
     }
 
     return { success: true };
@@ -430,7 +299,6 @@ export const Database = {
 
   // Data Writing to Firestore
   saveDeliveries(companyId: string, deliveries: Entrega[]) {
-    // Update or insert each delivery into Firestore
     deliveries.forEach(del => {
       setDoc(doc(firestoreDb, 'deliveries', del.id), { ...del, companyId });
     });
@@ -454,37 +322,55 @@ export const Database = {
     });
   },
 
-  // Admin User Creation (For operators / drivers)
-  createUser(companyId: string, nome: string, email: string, senha: string, role: UserRole, motoristaId?: string): { success: boolean; user?: Usuario; error?: string } {
-    const cleanEmail = email.trim().toLowerCase();
+  // Admin User Creation (For operators / drivers) via API + Firestore
+  async createUser(companyId: string, nome: string, email: string, senha: string, role: UserRole, motoristaId?: string): Promise<{ success: boolean; user?: Usuario; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const response = await fetch(`/api/users/${companyId}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({ nome, email, senha, role, motoristaId })
+      });
+      const data = await response.json();
 
-    const exists = inMemoryCache.usuarios.find(u => u.email === cleanEmail);
-    if (exists) {
-      return { success: false, error: 'E-mail de usuário já está cadastrado' };
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'Erro ao cadastrar usuário' };
+      }
+
+      return { success: true, user: data.user };
+    } catch (err) {
+      console.error('Error creating user via API, falling back to Firestore client SDK:', err);
+      const cleanEmail = email.trim().toLowerCase();
+      const exists = inMemoryCache.usuarios.find(u => u.email === cleanEmail);
+      if (exists) {
+        return { success: false, error: 'E-mail de usuário já está cadastrado' };
+      }
+
+      const userId = generateId('usr');
+      const newUser: Usuario = {
+        id: userId,
+        companyId,
+        nome,
+        email: cleanEmail,
+        senhaHash: hashPassword(senha),
+        telefone: '',
+        role,
+        motoristaId,
+        ativo: true,
+        criadoEm: new Date().toISOString()
+      };
+
+      await setDoc(doc(firestoreDb, 'usuarios', userId), newUser);
+
+      if (role === 'motorista' && motoristaId) {
+        await setDoc(doc(firestoreDb, 'drivers', motoristaId), { userId }, { merge: true });
+      }
+
+      return { success: true, user: newUser };
     }
-
-    const userId = generateId('usr');
-    const newUser: Usuario = {
-      id: userId,
-      companyId,
-      nome,
-      email: cleanEmail,
-      senhaHash: hashPassword(senha),
-      telefone: '',
-      role,
-      motoristaId,
-      ativo: true,
-      criadoEm: new Date().toISOString()
-    };
-
-    setDoc(doc(firestoreDb, 'usuarios', userId), newUser);
-
-    // Sync with driver profile if motorista
-    if (role === 'motorista' && motoristaId) {
-      setDoc(doc(firestoreDb, 'drivers', motoristaId), { userId }, { merge: true });
-    }
-
-    return { success: true, user: newUser };
   },
 
   updateUserStatus(userId: string, ativo: boolean): boolean {

@@ -102,7 +102,7 @@ export default function App() {
     setUsers(Database.getUsers(companyId));
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     setAuthSuccess(null);
@@ -112,7 +112,7 @@ export default function App() {
       return;
     }
 
-    const res = Database.login(loginEmail, loginPassword);
+    const res = await Database.login(loginEmail, loginPassword);
     if (res.success && res.user) {
       setCurrentUser(res.user);
       const comp = Database.getCompany(res.user.companyId);
@@ -130,7 +130,7 @@ export default function App() {
     }
   };
 
-  const handleRegisterCompany = (e: React.FormEvent) => {
+  const handleRegisterCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     setAuthSuccess(null);
@@ -140,7 +140,7 @@ export default function App() {
       return;
     }
 
-    const res = Database.registerCompany(
+    const res = await Database.registerCompany(
       regCompanyName,
       regAdminName,
       regEmail,
@@ -323,7 +323,9 @@ export default function App() {
         '123456', // Default password for new drivers, they can change it
         'motorista',
         drvId
-      );
+      ).then(() => {
+        setUsers(Database.getUsers(currentUser.companyId));
+      });
     }
 
     // Reload both from database to keep in-memory state perfectly updated and synchronized
@@ -381,9 +383,9 @@ export default function App() {
     Database.saveVehicles(currentUser.companyId, updated);
   };
 
-  const handleAddUser = (nome: string, email: string, role: 'operador' | 'motorista', motoristaId?: string) => {
+  const handleAddUser = async (nome: string, email: string, role: 'operador' | 'motorista', motoristaId?: string) => {
     if (!currentUser || !currentCompany) return;
-    const res = Database.createUser(currentUser.companyId, nome, email, '123456', role, motoristaId);
+    const res = await Database.createUser(currentUser.companyId, nome, email, '123456', role, motoristaId);
     if (res.success) {
       setUsers(Database.getUsers(currentUser.companyId));
       setDrivers(Database.getDrivers(currentUser.companyId));

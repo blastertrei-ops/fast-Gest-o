@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "database": "ai-studio-fastgestodeentre-1b2afb51-0940-4fdd-a3af-04eae118ef64",
+    "rules": "firestore.rules"
+  }
+}

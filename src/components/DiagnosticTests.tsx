@@ -67,7 +67,7 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
       const driverEmail = `mateus_${suffix}@auditoria.com`;
 
       addLog(`Cadastrando nova empresa: "${companyName}"...`);
-      const regRes = Database.registerCompany(companyName, 'Admin Auditor', operatorEmail, '123456', '11999999999');
+      const regRes = await Database.registerCompany(companyName, 'Admin Auditor', operatorEmail, '123456', '11999999999');
       if (!regRes.success || !regRes.user) {
         throw new Error(`Falha ao registrar empresa de teste: ${regRes.error}`);
       }
@@ -96,7 +96,7 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
 
       // Create login user account linked to Mateus
       addLog(`Criando usuário de login para Mateus com e-mail: ${driverEmail}...`);
-      const userRes = Database.createUser(testOperator.companyId, 'Mateus Entregador', driverEmail, '123456', 'motorista', driverId);
+      const userRes = await Database.createUser(testOperator.companyId, 'Mateus Entregador', driverEmail, '123456', 'motorista', driverId);
       if (!userRes.success || !userRes.user) {
         throw new Error(`Falha ao criar usuário de login para o entregador Mateus: ${userRes.error}`);
       }
@@ -200,7 +200,7 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
       addLog('Executando Teste 3: Simulação de Login de Mateus e Filtro Automático.');
 
       addLog(`Simulando login do entregador: ${driverEmail}...`);
-      const loginRes = Database.login(driverEmail, '123456');
+      const loginRes = await Database.login(driverEmail, '123456');
       if (!loginRes.success || !loginRes.user) {
         throw new Error(`Falha ao simular login de Mateus: ${loginRes.error}`);
       }
