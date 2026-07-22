@@ -344,21 +344,49 @@ export const Database = {
   },
 
   // Data Writing to Firestore & Express API Central Database
-  saveDeliveries(companyId: string, deliveries: Entrega[]) {
-    inMemoryCache.deliveries[companyId] = deliveries;
+  async saveSingleDelivery(companyId: string, delivery: Entrega): Promise<Entrega> {
+    const existing = inMemoryCache.deliveries[companyId] || [];
+    const index = existing.findIndex(d => d.id === delivery.id);
+    if (index >= 0) {
+      existing[index] = delivery;
+    } else {
+      existing.unshift(delivery);
+    }
+    inMemoryCache.deliveries[companyId] = existing;
     notifySubscribers();
 
+    // Direct Firestore write as primary client storage
+    await setDoc(doc(firestoreDb, 'deliveries', delivery.id), { ...delivery, companyId });
+
+    // API POST request to Express backend
     const token = localStorage.getItem(JWT_TOKEN_KEY);
-    deliveries.forEach(del => {
-      setDoc(doc(firestoreDb, 'deliveries', del.id), { ...del, companyId });
-      fetch(`/api/deliveries/${companyId}`, {
+    try {
+      const res = await fetch(`/api/deliveries/${companyId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : ''
         },
-        body: JSON.stringify(del)
-      }).catch(err => console.error('Error syncing delivery via API:', err));
+        body: JSON.stringify(delivery)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.delivery) return data.delivery;
+      }
+    } catch (err) {
+      console.warn('API saveSingleDelivery warning:', err);
+    }
+
+    return delivery;
+  },
+
+  saveDeliveries(companyId: string, deliveries: Entrega[]) {
+    inMemoryCache.deliveries[companyId] = deliveries;
+    notifySubscribers();
+
+    // Sync to Firestore without triggering duplicate POST loops
+    deliveries.forEach(del => {
+      setDoc(doc(firestoreDb, 'deliveries', del.id), { ...del, companyId });
     });
   },
 

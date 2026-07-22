@@ -196,7 +196,7 @@ export default function App() {
   };
 
   // State Updates Wrapper for Multi-tenant Local Sync
-  const handleAddDelivery = (newDel: Omit<Entrega, 'id' | 'companyId' | 'criadoPor' | 'criadoEm' | 'atualizadoEm' | 'origem' | 'historico'>) => {
+  const handleAddDelivery = async (newDel: Omit<Entrega, 'id' | 'companyId' | 'criadoPor' | 'criadoEm' | 'atualizadoEm' | 'origem' | 'historico'>) => {
     if (!currentUser || !currentCompany) return;
     
     // Resolve entregador information directly from DB
@@ -248,9 +248,8 @@ export default function App() {
     console.log("entregadorNome salvo:", entregadorNome || "Nenhum");
     console.log("======================");
 
-    const updated = [fullDelivery, ...deliveries];
-    setDeliveries(updated);
-    Database.saveDeliveries(currentUser.companyId, updated);
+    setDeliveries(prev => [fullDelivery, ...prev.filter(d => d.id !== fullDelivery.id)]);
+    await Database.saveSingleDelivery(currentUser.companyId, fullDelivery);
   };
 
   const handleUpdateDelivery = (id: string, updates: Partial<Entrega>) => {

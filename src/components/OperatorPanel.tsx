@@ -7,7 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Plus, Search, Filter, Calendar, Users, Truck, DollarSign, Package, 
   MapPin, CheckCircle2, AlertTriangle, Clock, XCircle, FileText, Phone, 
-  FileCheck, Shield, ChevronRight, UserPlus, Trash, Printer, FileDown, Eye, Check, RefreshCw
+  FileCheck, Shield, ChevronRight, UserPlus, Trash, Printer, FileDown, Eye, Check, RefreshCw, Loader2
 } from 'lucide-react';
 import { 
   Entrega, Motorista, Veiculo, Usuario, Empresa, EntregaStatus, 
@@ -23,7 +23,7 @@ interface OperatorPanelProps {
   drivers: Motorista[];
   vehicles: Veiculo[];
   users: Usuario[];
-  onAddDelivery: (delivery: Omit<Entrega, 'id' | 'companyId' | 'criadoPor' | 'criadoEm' | 'atualizadoEm' | 'origem' | 'historico'>) => void;
+  onAddDelivery: (delivery: Omit<Entrega, 'id' | 'companyId' | 'criadoPor' | 'criadoEm' | 'atualizadoEm' | 'origem' | 'historico'>) => Promise<void> | void;
   onUpdateDelivery: (id: string, updates: Partial<Entrega>) => void;
   onDeleteDelivery: (id: string) => void;
   onAddDriver: (driver: Omit<Motorista, 'id' | 'companyId' | 'criadoEm'>) => void;
@@ -65,6 +65,7 @@ export default function OperatorPanel({
 
   // Form Modals
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isSubmittingDelivery, setIsSubmittingDelivery] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState<Entrega | null>(null);
   const [showDriverModal, setShowDriverModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
@@ -206,12 +207,16 @@ export default function OperatorPanel({
   }, [deliveries, dateFilter]);
 
   // Handle Create Delivery
-  const handleCreateDelivery = (e: React.FormEvent) => {
+  const handleCreateDelivery = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingDelivery) return;
+
     if (!newNF || !newClientName || !newRua || !newCEP || !newValor) {
       alert('Por favor preencha os campos obrigatórios (*).');
       return;
     }
+
+    setIsSubmittingDelivery(true);
 
     try {
       // Auto calculate mock locations near SP
@@ -225,7 +230,7 @@ export default function OperatorPanel({
         ? users.find(u => u.motoristaId === newMotoristaId || (selectedDriverObj?.email && u.email?.toLowerCase() === selectedDriverObj.email.toLowerCase())) 
         : undefined;
 
-      onAddDelivery({
+      await onAddDelivery({
         numeroNF: newNF,
         numeroPedido: newPedido || undefined,
         cliente: {
@@ -282,14 +287,13 @@ export default function OperatorPanel({
       setNewPrioridade('media');
       setNewHora('');
 
-      // Close modal automatically
+      // Close modal immediately
       setShowAddModal(false);
-
-      // Display success alert
-      alert('Entrega cadastrada com sucesso!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao cadastrar entrega:', err);
-      alert('Erro ao cadastrar entrega. Tente novamente.');
+      alert(err?.message || 'Erro ao cadastrar entrega. Tente novamente.');
+    } finally {
+      setIsSubmittingDelivery(false);
     }
   };
 
@@ -1631,9 +1635,17 @@ export default function OperatorPanel({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 rounded-lg text-xs font-bold"
+                disabled={isSubmittingDelivery}
+                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-bold flex items-center gap-2"
               >
-                Gravar Registro
+                {isSubmittingDelivery ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Gravando...
+                  </>
+                ) : (
+                  'Gravar Registro'
+                )}
               </button>
             </div>
           </form>
