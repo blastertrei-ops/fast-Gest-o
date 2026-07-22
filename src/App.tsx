@@ -202,12 +202,14 @@ export default function App() {
     
     // Resolve entregador information directly from DB
     const dbUsers = Database.getUsers(currentUser.companyId);
-    const assocUser = newDel.motoristaId ? dbUsers.find(u => u.motoristaId === newDel.motoristaId) : undefined;
     const dbDrivers = Database.getDrivers(currentUser.companyId);
     const drvObj = newDel.motoristaId ? dbDrivers.find(drv => drv.id === newDel.motoristaId) : undefined;
+    const assocUser = newDel.motoristaId 
+      ? dbUsers.find(u => u.motoristaId === newDel.motoristaId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase()) || (drvObj?.nome && u.nome?.toLowerCase() === drvObj.nome.toLowerCase())) 
+      : undefined;
 
     const entregadorId = newDel.entregadorId || assocUser?.id || undefined;
-    const entregadorNome = newDel.entregadorNome || drvObj?.nome || undefined;
+    const entregadorNome = newDel.entregadorNome || drvObj?.nome || assocUser?.nome || undefined;
 
     // If an entregador was selected, the delivery immediately becomes 'aguardando_motorista' so the driver can see and start it
     const status = newDel.motoristaId ? 'aguardando_motorista' : 'venda_realizada';
@@ -264,12 +266,12 @@ export default function App() {
           const selectedId = updates.motoristaId;
           if (selectedId) {
             const dbUsers = Database.getUsers(currentUser.companyId);
-            const assocUser = dbUsers.find(u => u.motoristaId === selectedId);
             const dbDrivers = Database.getDrivers(currentUser.companyId);
             const drvObj = dbDrivers.find(drv => drv.id === selectedId);
+            const assocUser = dbUsers.find(u => u.motoristaId === selectedId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase()) || (drvObj?.nome && u.nome?.toLowerCase() === drvObj.nome.toLowerCase()));
 
             finalUpdates.entregadorId = updates.entregadorId || assocUser?.id || undefined;
-            finalUpdates.entregadorNome = updates.entregadorNome || drvObj?.nome || undefined;
+            finalUpdates.entregadorNome = updates.entregadorNome || drvObj?.nome || assocUser?.nome || undefined;
             
             // Advance status immediately to 'aguardando_motorista' so the driver can see and start it
             if (d.status === 'venda_realizada' || d.status === 'nf_emitida' || d.status === 'separacao') {

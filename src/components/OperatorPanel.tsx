@@ -213,69 +213,84 @@ export default function OperatorPanel({
       return;
     }
 
-    // Auto calculate mock locations near SP
-    const baseLat = -23.5505;
-    const baseLng = -46.6333;
-    const randomLat = baseLat + (Math.random() - 0.5) * 0.08;
-    const randomLng = baseLng + (Math.random() - 0.5) * 0.08;
+    try {
+      // Auto calculate mock locations near SP
+      const baseLat = -23.5505;
+      const baseLng = -46.6333;
+      const randomLat = baseLat + (Math.random() - 0.5) * 0.08;
+      const randomLng = baseLng + (Math.random() - 0.5) * 0.08;
 
-    onAddDelivery({
-      numeroNF: newNF,
-      numeroPedido: newPedido || undefined,
-      cliente: {
-        nome: newClientName,
-        telefone: newClientPhone,
-        whatsapp: newClientWhatsapp || undefined,
-        documento: newClientDoc || undefined
-      },
-      endereco: {
-        ruaNumero: newRua,
-        numero: newNumero,
-        bairro: newBairro,
-        cidade: newCidade || 'São Paulo',
-        cep: newCEP,
-        complemento: newComplemento || undefined,
-        latitude: randomLat,
-        longitude: randomLng
-      },
-      volumes: Number(newVolumes),
-      valorVenda: parseFloat(newValor.replace(',', '.')),
-      valorFrete: newFrete ? parseFloat(newFrete.replace(',', '.')) : undefined,
-      formaPagamento: newFormaPagamento,
-      statusPagamento: newStatusPagamento,
-      status: 'venda_realizada', // Starts at step 1 of flow
-      motoristaId: newMotoristaId || undefined,
-      entregadorId: newMotoristaId ? (users.find(u => u.motoristaId === newMotoristaId)?.id || undefined) : undefined,
-      entregadorNome: newMotoristaId ? (drivers.find(drv => drv.id === newMotoristaId)?.nome || undefined) : undefined,
-      dataEntregaPrevista: dateFilter,
-      horaEntregaPrevista: newHora || undefined,
-      observacoes: newObs || undefined,
-      prioridade: newPrioridade
-    });
+      const selectedDriverObj = newMotoristaId ? drivers.find(drv => drv.id === newMotoristaId) : undefined;
+      const matchingUser = newMotoristaId 
+        ? users.find(u => u.motoristaId === newMotoristaId || (selectedDriverObj?.email && u.email?.toLowerCase() === selectedDriverObj.email.toLowerCase())) 
+        : undefined;
 
-    // Reset Form
-    setNewNF('');
-    setNewPedido('');
-    setNewClientName('');
-    setNewClientPhone('');
-    setNewClientWhatsapp('');
-    setNewClientDoc('');
-    setNewRua('');
-    setNewNumero('');
-    setNewBairro('');
-    setNewCidade('');
-    setNewCEP('');
-    setNewComplemento('');
-    setNewVolumes(1);
-    setNewValor('');
-    setNewFrete('');
-    setNewFormaPagamento('ja_pago');
-    setNewStatusPagamento('pago');
-    setNewMotoristaId('');
-    setNewObs('');
-    setNewPrioridade('media');
-    setNewHora('');
-    setShowAddModal(false);
+      onAddDelivery({
+        numeroNF: newNF,
+        numeroPedido: newPedido || undefined,
+        cliente: {
+          nome: newClientName,
+          telefone: newClientPhone,
+          whatsapp: newClientWhatsapp || undefined,
+          documento: newClientDoc || undefined
+        },
+        endereco: {
+          ruaNumero: newRua,
+          numero: newNumero,
+          bairro: newBairro,
+          cidade: newCidade || 'São Paulo',
+          cep: newCEP,
+          complemento: newComplemento || undefined,
+          latitude: randomLat,
+          longitude: randomLng
+        },
+        volumes: Number(newVolumes),
+        valorVenda: parseFloat(newValor.replace(',', '.')),
+        valorFrete: newFrete ? parseFloat(newFrete.replace(',', '.')) : undefined,
+        formaPagamento: newFormaPagamento,
+        statusPagamento: newStatusPagamento,
+        status: newMotoristaId ? 'aguardando_motorista' : 'venda_realizada',
+        motoristaId: newMotoristaId || undefined,
+        entregadorId: matchingUser?.id || undefined,
+        entregadorNome: selectedDriverObj?.nome || matchingUser?.nome || undefined,
+        dataEntregaPrevista: dateFilter,
+        horaEntregaPrevista: newHora || undefined,
+        observacoes: newObs || undefined,
+        prioridade: newPrioridade
+      });
+
+      // Reset Form
+      setNewNF('');
+      setNewPedido('');
+      setNewClientName('');
+      setNewClientPhone('');
+      setNewClientWhatsapp('');
+      setNewClientDoc('');
+      setNewRua('');
+      setNewNumero('');
+      setNewBairro('');
+      setNewCidade('');
+      setNewCEP('');
+      setNewComplemento('');
+      setNewVolumes(1);
+      setNewValor('');
+      setNewFrete('');
+      setNewFormaPagamento('ja_pago');
+      setNewStatusPagamento('pago');
+      setNewMotoristaId('');
+      setNewObs('');
+      setNewPrioridade('media');
+      setNewHora('');
+
+      // Close modal automatically
+      setShowAddModal(false);
+
+      // Display success alert
+      alert('Entrega cadastrada com sucesso!');
+    } catch (err) {
+      console.error('Erro ao cadastrar entrega:', err);
+      alert('Erro ao cadastrar entrega. Tente novamente.');
+    }
   };
 
   // Handle Create Driver

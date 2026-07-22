@@ -48,8 +48,11 @@ export default function DriverPanel({
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
 
-  // Resolve the active driver physical row using currentUser's motoristaId link
-  const currentDriver = drivers.find(d => d.id === currentUser.motoristaId);
+  // Resolve the active driver physical row using currentUser's motoristaId link, email, or name
+  const currentDriver = 
+    drivers.find(d => d.id === currentUser.motoristaId) ||
+    drivers.find(d => d.email && currentUser.email && d.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+    drivers.find(d => d.nome && currentUser.nome && d.nome.toLowerCase() === currentUser.nome.toLowerCase());
 
   // Log active logged-in driver user information on mount and session updates
   React.useEffect(() => {
@@ -57,32 +60,41 @@ export default function DriverPanel({
       console.log("=== USUÁRIO LOGADO ===");
       console.log("currentUser.id:", currentUser.id);
       console.log("currentUser.nome:", currentUser.nome);
+      console.log("currentUser.motoristaId:", currentUser.motoristaId);
       console.log("empresaId:", currentUser.companyId);
       console.log("perfil:", currentUser.role);
+      console.log("currentDriver ID:", currentDriver?.id || "Nenhum");
       console.log("======================");
     }
-  }, [currentUser]);
+  }, [currentUser, currentDriver]);
 
   // Filter deliveries assigned to the active driver that are ready for driver or processed
   const driverDeliveries = React.useMemo(() => {
-    if (!currentUser.id) return [];
+    if (!currentUser || !currentUser.id) return [];
+
+    const activeDriverId = currentUser.motoristaId || currentDriver?.id;
+    const activeDriverName = currentDriver?.nome || currentUser.nome;
 
     console.log("=== ANTES DE FILTRAR AS ENTREGAS ===");
     console.log("Todas as entregas encontradas:", deliveries);
+    console.log("Active Driver ID:", activeDriverId, "| User ID:", currentUser.id);
     console.log("====================================");
 
     console.log("=== DURANTE O FILTRO ===");
     const filtered = deliveries.filter(d => {
-      const isAssigned = (d.entregadorId && d.entregadorId === currentUser.id) || 
-                         (currentUser.motoristaId && d.motoristaId === currentUser.motoristaId);
-      const isValidStatus = (d.status === 'aguardando_motorista' || d.status === 'em_rota' || d.status === 'entregue' || d.status === 'nao_entregue');
+      const isAssigned = 
+        (d.entregadorId && d.entregadorId === currentUser.id) || 
+        (activeDriverId && d.motoristaId && d.motoristaId === activeDriverId) ||
+        (d.entregadorNome && activeDriverName && d.entregadorNome.toLowerCase() === activeDriverName.toLowerCase());
+      
+      const isValidStatus = d.status !== 'cancelada';
       const isMatch = isAssigned && isValidStatus;
       
       console.log(`Entrega NF: ${d.numeroNF} (ID: ${d.id})`);
       console.log(`  entregadorId = ${d.entregadorId || 'undefined'}`);
       console.log(`  motoristaId = ${d.motoristaId || 'undefined'}`);
       console.log(`  currentUser.id = ${currentUser.id}`);
-      console.log(`  currentUser.motoristaId = ${currentUser.motoristaId || 'undefined'}`);
+      console.log(`  activeDriverId = ${activeDriverId || 'undefined'}`);
       console.log(`  status = ${d.status}`);
       console.log(`  Resultado = ${isMatch ? 'TRUE' : 'FALSE'}`);
       
@@ -105,7 +117,7 @@ export default function DriverPanel({
       }
       return 0;
     });
-  }, [deliveries, currentUser]);
+  }, [deliveries, currentUser, currentDriver]);
 
   const formatCurrency = (val: number) => {
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
