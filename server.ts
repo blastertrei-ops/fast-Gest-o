@@ -455,7 +455,18 @@ app.get('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
     let deliveries = snap.docs.map(d => d.data() as ApiDelivery);
 
     if (req.user?.role === 'motorista') {
-      deliveries = deliveries.filter(d => d.entregadorId === req.user?.userId || d.motoristaId === req.user?.userId);
+      const userSnap = await getDoc(doc(firestoreDb, 'usuarios', req.user.userId));
+      const userDoc = userSnap.exists() ? userSnap.data() as ApiUser : undefined;
+      const driverIdFromUser = userDoc?.motoristaId;
+      const driverName = userDoc?.nome?.toLowerCase();
+
+      deliveries = deliveries.filter(d => 
+        (d.entregadorId && d.entregadorId === req.user?.userId) || 
+        (driverIdFromUser && d.motoristaId && d.motoristaId === driverIdFromUser) ||
+        (d.motoristaId && d.motoristaId === req.user?.userId) ||
+        (d.entregadorId && driverIdFromUser && d.entregadorId === driverIdFromUser) ||
+        (driverName && d.entregadorNome && d.entregadorNome.toLowerCase() === driverName)
+      );
     }
 
     return res.json(deliveries);

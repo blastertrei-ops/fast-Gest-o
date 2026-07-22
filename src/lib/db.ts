@@ -278,7 +278,14 @@ export const Database = {
 
   // Multi-Company Query Isolation
   getCompany(companyId: string): Empresa | undefined {
-    return inMemoryCache.empresas.find(e => e.id === companyId);
+    const found = inMemoryCache.empresas.find(e => e.id === companyId);
+    if (found) return found;
+    // Fallback company object if cache is loading
+    return {
+      id: companyId,
+      nome: 'Empresa Logística',
+      criadoEm: new Date().toISOString()
+    };
   },
 
   getDeliveries(companyId: string): Entrega[] {
@@ -297,8 +304,50 @@ export const Database = {
     return inMemoryCache.usuarios.filter(u => u.companyId === companyId);
   },
 
+  // Asynchronous central data sync from backend API / Firestore
+  async syncCompanyData(companyId: string): Promise<void> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    if (!companyId) return;
+
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const [delRes, drvRes, vecRes, usrRes] = await Promise.all([
+        fetch(`/api/deliveries/${companyId}`, { headers }),
+        fetch(`/api/drivers/${companyId}`, { headers }),
+        fetch(`/api/vehicles/${companyId}`, { headers }),
+        fetch(`/api/users/${companyId}`, { headers })
+      ]);
+
+      if (delRes.ok) {
+        const dels = await delRes.json();
+        inMemoryCache.deliveries[companyId] = dels;
+      }
+      if (drvRes.ok) {
+        const drvs = await drvRes.json();
+        inMemoryCache.drivers[companyId] = drvs;
+      }
+      if (vecRes.ok) {
+        const vecs = await vecRes.json();
+        inMemoryCache.vehicles[companyId] = vecs;
+      }
+      if (usrRes.ok) {
+        const usrs = await usrRes.json();
+        const otherUsers = inMemoryCache.usuarios.filter(u => u.companyId !== companyId);
+        inMemoryCache.usuarios = [...otherUsers, ...usrs];
+      }
+      notifySubscribers();
+    } catch (err) {
+      console.error('Error syncing company data from API:', err);
+    }
+  },
+
   // Data Writing to Firestore & Express API Central Database
   saveDeliveries(companyId: string, deliveries: Entrega[]) {
+    inMemoryCache.deliveries[companyId] = deliveries;
+    notifySubscribers();
+
     const token = localStorage.getItem(JWT_TOKEN_KEY);
     deliveries.forEach(del => {
       setDoc(doc(firestoreDb, 'deliveries', del.id), { ...del, companyId });

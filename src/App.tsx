@@ -64,12 +64,9 @@ export default function App() {
       const comp = Database.getCompany(session.companyId);
       if (comp) {
         setCurrentCompany(comp);
-        loadCompanyData(session.companyId);
-      } else {
-        // Fallback: company lost
-        Database.setCurrentSession(null);
-        setCurrentUser(null);
       }
+      loadCompanyData(session.companyId);
+      Database.syncCompanyData(session.companyId);
     }
   }, []);
 
@@ -85,8 +82,8 @@ export default function App() {
           const comp = Database.getCompany(session.companyId);
           if (comp) {
             setCurrentCompany(comp);
-            loadCompanyData(session.companyId);
           }
+          loadCompanyData(session.companyId);
         }
       }
     });
@@ -118,13 +115,15 @@ export default function App() {
       const comp = Database.getCompany(res.user.companyId);
       if (comp) {
         setCurrentCompany(comp);
-        loadCompanyData(res.user.companyId);
-        
-        // Initialize profile state
-        setProfileName(res.user.nome);
-        setProfileEmail(res.user.email);
-        setProfilePhone(res.user.telefone || '');
       }
+      loadCompanyData(res.user.companyId);
+      await Database.syncCompanyData(res.user.companyId);
+      loadCompanyData(res.user.companyId);
+      
+      // Initialize profile state
+      setProfileName(res.user.nome);
+      setProfileEmail(res.user.email);
+      setProfilePhone(res.user.telefone || '');
     } else {
       setAuthError(res.error || 'Erro ao realizar login.');
     }
@@ -214,7 +213,7 @@ export default function App() {
     // If an entregador was selected, the delivery immediately becomes 'aguardando_motorista' so the driver can see and start it
     const status = newDel.motoristaId ? 'aguardando_motorista' : 'venda_realizada';
 
-    const deliveryId = 'ent_' + (1000 + deliveries.length + 1);
+    const deliveryId = 'ent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     const fullDelivery: Entrega = {
       ...newDel,
       id: deliveryId,
