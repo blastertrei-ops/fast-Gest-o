@@ -14,7 +14,8 @@ import {
   collection, 
   query, 
   where, 
-  updateDoc 
+  updateDoc,
+  deleteDoc
 } from 'firebase/firestore';
 import firebaseConfig from './firebase-applet-config.json';
 
@@ -101,6 +102,9 @@ interface ApiDelivery {
   cliente: {
     nome: string;
     telefone: string;
+    whatsapp?: string;
+    documento?: string;
+    email?: string;
   };
   endereco: {
     ruaNumero: string;
@@ -520,6 +524,54 @@ app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
   }
 });
 
+app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId, deliveryId } = req.params;
+    const { deleteFiles, motivo } = req.body || {};
+
+    // Only Admin and Operators can delete deliveries (drivers/motoristas cannot)
+    if (req.user?.role === 'motorista') {
+      return res.status(403).json({ error: 'Entregadores não têm permissão para excluir entregas.' });
+    }
+
+    const delRef = doc(firestoreDb, 'deliveries', deliveryId);
+    const delSnap = await getDoc(delRef);
+    if (!delSnap.exists()) {
+      return res.status(404).json({ error: 'Entrega não encontrada.' });
+    }
+
+    const deliveryData = delSnap.data() as ApiDelivery;
+
+    // Delete delivery document from Firestore
+    await deleteDoc(delRef);
+
+    // Register Audit Log
+    const auditId = 'aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const auditRecord = {
+      id: auditId,
+      companyId,
+      tipoAcao: 'exclusao_entrega',
+      descricao: `Exclusão da entrega NF ${deliveryData.numeroNF} (Cliente: ${deliveryData.cliente?.nome || 'N/A'})`,
+      usuarioNome: req.user.email || 'Usuário',
+      usuarioId: req.user.userId,
+      detalhes: {
+        entregaId: deliveryId,
+        numeroNF: deliveryData.numeroNF,
+        clienteNome: deliveryData.cliente?.nome,
+        motivo: motivo || 'Sem motivo informado',
+        deleteFiles: Boolean(deleteFiles)
+      },
+      dataHora: new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'auditoria', auditId), auditRecord);
+
+    return res.json({ success: true, message: `Entrega NF ${deliveryData.numeroNF} excluída com sucesso.` });
+  } catch (err) {
+    console.error('Erro na exclusão de entrega:', err);
+    return res.status(500).json({ error: 'Erro ao excluir entrega do banco de dados.' });
+  }
+});
+
 app.get('/api/drivers/:companyId', authenticateToken, async (req, res) => {
   try {
     const { companyId } = req.params;
@@ -662,6 +714,310 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
   } catch (err) {
     console.error('Erro ao atualizar usuário:', err);
     return res.status(500).json({ error: 'Erro ao atualizar usuário' });
+  }
+});
+
+// CLIENTS REST ROUTES
+app.get('/api/clients/:companyId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const q = query(collection(firestoreDb, 'clientes'), where('companyId', '==', companyId));
+    const snap = await getDocs(q);
+    return res.json(snap.docs.map(d => d.data()));
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao buscar clientes' });
+  }
+});
+
+app.post('/api/clients/:companyId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const clientData = req.body;
+
+    const clientId = clientData.id || ('cli_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
+    const clientDoc = {
+      ...clientData,
+      id: clientId,
+      companyId,
+      ativo: clientData.ativo !== undefined ? clientData.ativo : true,
+      criadoEm: clientData.criadoEm || new Date().toISOString()
+    };
+
+    await setDoc(doc(firestoreDb, 'clientes', clientId), clientDoc);
+    return res.json({ success: true, client: clientDoc });
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao salvar cliente' });
+  }
+});
+
+// SINGLE CLIENT DELETION WITH SECURITY & ACTIVE DELIVERIES BLOCKING
+app.delete('/api/clients/:companyId/:clientId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId, clientId } = req.params;
+
+    // 1. Security check: Only administrators can delete
+    if (req.user?.role !== 'admin' && req.user?.role !== 'master') {
+      return res.status(403).json({ error: 'Apenas administradores podem excluir clientes.' });
+    }
+
+    // 2. Fetch client
+    const clientRef = doc(firestoreDb, 'clientes', clientId);
+    const clientSnap = await getDoc(clientRef);
+    if (!clientSnap.exists()) {
+      return res.status(404).json({ error: 'Cliente não encontrado.' });
+    }
+    const clientData = clientSnap.data();
+
+    // 3. Check for pending or in-progress deliveries
+    const qDel = query(collection(firestoreDb, 'deliveries'), where('companyId', '==', companyId));
+    const delSnap = await getDocs(qDel);
+    const deliveries = delSnap.docs.map(d => d.data() as ApiDelivery);
+
+    const pendingStatuses = ['venda_realizada', 'nf_emitida', 'separacao', 'aguardando_motorista', 'em_rota'];
+
+    const clientDeliveries = deliveries.filter(d => 
+      (d.cliente && d.cliente.nome && clientData.nome && d.cliente.nome.trim().toLowerCase() === clientData.nome.trim().toLowerCase()) ||
+      (d.cliente && d.cliente.documento && clientData.documento && d.cliente.documento === clientData.documento)
+    );
+
+    const activeDeliveries = clientDeliveries.filter(d => pendingStatuses.includes(d.status));
+
+    if (activeDeliveries.length > 0) {
+      const activeNFs = activeDeliveries.map(d => d.numeroNF).join(', ');
+      return res.status(400).json({ 
+        error: `Não é possível excluir o cliente "${clientData.nome}". Existem ${activeDeliveries.length} entregas pendentes ou em andamento (NF: ${activeNFs}). Finalize ou cancele as entregas antes de excluir.`,
+        activeDeliveriesCount: activeDeliveries.length
+      });
+    }
+
+    // 4. Safe deletion
+    await deleteDoc(clientRef);
+
+    // 5. Register in Audit Log
+    const auditId = 'aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const auditRecord = {
+      id: auditId,
+      companyId,
+      tipoAcao: 'exclusao_cliente',
+      descricao: `Exclusão do cliente ${clientData.nome} (Doc: ${clientData.documento || 'N/A'})`,
+      usuarioNome: req.user.email || 'Administrador',
+      usuarioId: req.user.userId,
+      detalhes: {
+        clienteNome: clientData.nome,
+        clienteDocumento: clientData.documento || ''
+      },
+      dataHora: new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'auditoria', auditId), auditRecord);
+
+    return res.json({ success: true, message: `Cliente "${clientData.nome}" excluído com sucesso.` });
+  } catch (err) {
+    console.error('Erro na exclusão de cliente:', err);
+    return res.status(500).json({ error: 'Erro ao excluir cliente do banco de dados.' });
+  }
+});
+
+// BULK CLIENT CLEANUP FOR ADMINS
+app.post('/api/admin/bulk-cleanup-clients/:companyId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const { startDate, endDate, mode } = req.body; // mode: 'only_without_deliveries' | 'all_with_history'
+
+    if (req.user?.role !== 'admin' && req.user?.role !== 'master') {
+      return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem executar a limpeza em massa do banco.' });
+    }
+
+    const qClients = query(collection(firestoreDb, 'clientes'), where('companyId', '==', companyId));
+    const clientSnap = await getDocs(qClients);
+    const allClients = clientSnap.docs.map(d => d.data());
+
+    const qDeliveries = query(collection(firestoreDb, 'deliveries'), where('companyId', '==', companyId));
+    const deliverySnap = await getDocs(qDeliveries);
+    const allDeliveries = deliverySnap.docs.map(d => d.data() as ApiDelivery);
+
+    // Filter target clients in period
+    const targetClients = allClients.filter(c => {
+      const created = c.criadoEm ? c.criadoEm.split('T')[0] : '';
+      if (!created) return true;
+      if (startDate && created < startDate) return false;
+      if (endDate && created > endDate) return false;
+      return true;
+    });
+
+    let clientsRemovedCount = 0;
+    let deliveriesRemovedCount = 0;
+    let freedBytes = 0;
+
+    for (const client of targetClients) {
+      const linkedDeliveries = allDeliveries.filter(d => 
+        (d.cliente && d.cliente.nome && client.nome && d.cliente.nome.trim().toLowerCase() === client.nome.trim().toLowerCase()) ||
+        (d.cliente && d.cliente.documento && client.documento && d.cliente.documento === client.documento)
+      );
+
+      if (mode === 'only_without_deliveries' && linkedDeliveries.length > 0) {
+        continue; // Skip clients that have delivery history
+      }
+
+      // Calculate approximate bytes freed
+      const clientStr = JSON.stringify(client);
+      freedBytes += Buffer.byteLength(clientStr, 'utf8');
+
+      // Delete client
+      await deleteDoc(doc(firestoreDb, 'clientes', client.id));
+      clientsRemovedCount++;
+
+      // If mode is 'all_with_history', delete linked deliveries
+      if (mode === 'all_with_history' && linkedDeliveries.length > 0) {
+        for (const del of linkedDeliveries) {
+          const delStr = JSON.stringify(del);
+          freedBytes += Buffer.byteLength(delStr, 'utf8');
+          await deleteDoc(doc(firestoreDb, 'deliveries', del.id));
+          deliveriesRemovedCount++;
+        }
+      }
+    }
+
+    // Record Audit Trail
+    const auditId = 'aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const auditRecord = {
+      id: auditId,
+      companyId,
+      tipoAcao: 'exclusao_massa_clientes',
+      descricao: `Limpeza em massa do banco (${startDate || 'Início'} até ${endDate || 'Hoje'}): ${clientsRemovedCount} clientes e ${deliveriesRemovedCount} entregas removidas.`,
+      usuarioNome: req.user.email || 'Administrador',
+      usuarioId: req.user.userId,
+      detalhes: {
+        qtdClientesRemovidos: clientsRemovedCount,
+        qtdEntregasRemovidas: deliveriesRemovedCount,
+        espacoLiberadoBytes: freedBytes,
+        periodoReferencia: `${startDate || 'Início'} a ${endDate || 'Hoje'}`
+      },
+      dataHora: new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'auditoria', auditId), auditRecord);
+
+    const freedMB = (freedBytes / (1024 * 1024)).toFixed(2);
+
+    return res.json({
+      success: true,
+      clientsRemovedCount,
+      deliveriesRemovedCount,
+      freedBytes,
+      freedFormatted: freedMB === '0.00' ? `${(freedBytes / 1024).toFixed(1)} KB` : `${freedMB} MB`,
+      message: `Limpeza concluída! ${clientsRemovedCount} clientes e ${deliveriesRemovedCount} entregas foram removidas.`
+    });
+  } catch (err) {
+    console.error('Erro na limpeza em massa:', err);
+    return res.status(500).json({ error: 'Erro ao executar limpeza em massa do banco.' });
+  }
+});
+
+// GET AUDIT TRAIL
+app.get('/api/audit/:companyId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    if (req.user?.role !== 'admin' && req.user?.role !== 'master') {
+      return res.status(403).json({ error: 'Acesso restrito a administradores.' });
+    }
+    const q = query(collection(firestoreDb, 'auditoria'), where('companyId', '==', companyId));
+    const snap = await getDocs(q);
+    const logs = snap.docs.map(d => d.data());
+    logs.sort((a: any, b: any) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime());
+    return res.json(logs);
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao consultar histórico de auditoria.' });
+  }
+});
+
+// GET STORAGE MONITOR METRICS
+app.get('/api/storage-metrics/:companyId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    const [clientsSnap, delSnap, driversSnap, usersSnap, auditSnap] = await Promise.all([
+      getDocs(query(collection(firestoreDb, 'clientes'), where('companyId', '==', companyId))),
+      getDocs(query(collection(firestoreDb, 'deliveries'), where('companyId', '==', companyId))),
+      getDocs(query(collection(firestoreDb, 'drivers'), where('companyId', '==', companyId))),
+      getDocs(query(collection(firestoreDb, 'usuarios'), where('companyId', '==', companyId))),
+      getDocs(query(collection(firestoreDb, 'auditoria'), where('companyId', '==', companyId)))
+    ]);
+
+    const clients = clientsSnap.docs.map(d => d.data());
+    const deliveries = delSnap.docs.map(d => d.data() as ApiDelivery);
+    const drivers = driversSnap.docs.map(d => d.data());
+    const users = usersSnap.docs.map(d => d.data());
+    const auditLogs = auditSnap.docs.map(d => d.data());
+
+    const totalClientes = clients.length;
+    const totalClientesAtivos = clients.filter((c: any) => c.ativo !== false).length;
+
+    // Deleted clients count from audit logs
+    const deletedLogs = auditLogs.filter((a: any) => a.tipoAcao === 'exclusao_cliente' || a.tipoAcao === 'exclusao_massa_clientes');
+    let totalClientesExcluidos = 0;
+    deletedLogs.forEach((a: any) => {
+      if (a.tipoAcao === 'exclusao_cliente') totalClientesExcluidos += 1;
+      else if (a.detalhes?.qtdClientesRemovidos) totalClientesExcluidos += a.detalhes.qtdClientesRemovidos;
+    });
+
+    const totalEntregas = deliveries.length;
+    let totalComprovantes = 0;
+    let totalFotos = 0;
+    let totalDocumentos = 0;
+
+    deliveries.forEach(d => {
+      if (d.numeroNF) totalDocumentos++;
+      if (d.comprovante) {
+        totalComprovantes++;
+        if (d.comprovante.assinaturaUrl) totalFotos++;
+        if (d.comprovante.fotoProdutoUrl) totalFotos++;
+        if (d.comprovante.fotoFachadaUrl) totalFotos++;
+      }
+    });
+
+    drivers.forEach((drv: any) => {
+      if (drv.fotoPerfilUrl) totalFotos++;
+      if (drv.cnh) totalDocumentos++;
+    });
+
+    // Calculate total byte size of database payload
+    let totalBytes = 0;
+    const calcBytes = (obj: any) => Buffer.byteLength(JSON.stringify(obj), 'utf8');
+
+    clients.forEach(c => totalBytes += calcBytes(c));
+    deliveries.forEach(d => totalBytes += calcBytes(d));
+    drivers.forEach(drv => totalBytes += calcBytes(drv));
+    users.forEach(u => totalBytes += calcBytes(u));
+    auditLogs.forEach(a => totalBytes += calcBytes(a));
+
+    const totalMB = totalBytes / (1024 * 1024);
+    let espacoUtilizadoFormatted = '';
+    if (totalMB < 1) {
+      espacoUtilizadoFormatted = `${(totalBytes / 1024).toFixed(1)} KB`;
+    } else if (totalMB < 1024) {
+      espacoUtilizadoFormatted = `${totalMB.toFixed(2)} MB`;
+    } else {
+      espacoUtilizadoFormatted = `${(totalMB / 1024).toFixed(2)} GB`;
+    }
+
+    // Standard baseline limit for visualization (e.g. 50 MB standard tier)
+    const baselineMaxBytes = 50 * 1024 * 1024;
+    const percentualUso = Math.min(100, Math.max(1, Math.round((totalBytes / baselineMaxBytes) * 100)));
+
+    return res.json({
+      totalClientes,
+      totalClientesAtivos,
+      totalClientesExcluidos,
+      totalEntregas,
+      totalComprovantes,
+      totalFotos,
+      totalDocumentos,
+      espacoUtilizadoBytes: totalBytes,
+      espacoUtilizadoFormatted,
+      percentualUso
+    });
+  } catch (err) {
+    console.error('Erro ao calcular métricas de armazenamento:', err);
+    return res.status(500).json({ error: 'Erro ao calcular métricas de armazenamento' });
   }
 });
 

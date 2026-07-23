@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Database, hashPassword } from './lib/db';
-import { Entrega, Motorista, Veiculo, Usuario, Empresa } from './types';
+import { Entrega, Motorista, Veiculo, Usuario, Empresa, Cliente, RegistroAuditoria } from './types';
 import OperatorPanel from './components/OperatorPanel';
 import DriverPanel from './components/DriverPanel';
 import { DiagnosticTestsModal } from './components/DiagnosticTests';
@@ -25,6 +25,8 @@ export default function App() {
   const [drivers, setDrivers] = useState<Motorista[]>([]);
   const [vehicles, setVehicles] = useState<Veiculo[]>([]);
   const [users, setUsers] = useState<Usuario[]>([]);
+  const [clients, setClients] = useState<Cliente[]>([]);
+  const [auditLogs, setAuditLogs] = useState<RegistroAuditoria[]>([]);
 
   // Auth Screen Flow States
   const [authMode, setAuthMode] = useState<'login' | 'register_company' | 'recover'>('login');
@@ -97,6 +99,8 @@ export default function App() {
     setDrivers(Database.getDrivers(companyId));
     setVehicles(Database.getVehicles(companyId));
     setUsers(Database.getUsers(companyId));
+    setClients(Database.getClients(companyId));
+    setAuditLogs(Database.getAuditLogs(companyId));
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -204,10 +208,10 @@ export default function App() {
     const dbDrivers = Database.getDrivers(currentUser.companyId);
     const drvObj = newDel.motoristaId ? dbDrivers.find(drv => drv.id === newDel.motoristaId) : undefined;
     const assocUser = newDel.motoristaId 
-      ? dbUsers.find(u => u.motoristaId === newDel.motoristaId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase()) || (drvObj?.nome && u.nome?.toLowerCase() === drvObj.nome.toLowerCase())) 
+      ? dbUsers.find(u => u.motoristaId === newDel.motoristaId || u.id === newDel.motoristaId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase()) || (drvObj?.nome && u.nome?.toLowerCase() === drvObj.nome.toLowerCase())) 
       : undefined;
 
-    const entregadorId = newDel.entregadorId || assocUser?.id || undefined;
+    const entregadorId = newDel.entregadorId || assocUser?.id || drvObj?.id || newDel.motoristaId || undefined;
     const entregadorNome = newDel.entregadorNome || drvObj?.nome || assocUser?.nome || undefined;
 
     // If an entregador was selected, the delivery immediately becomes 'aguardando_motorista' so the driver can see and start it
@@ -260,22 +264,24 @@ export default function App() {
         let finalUpdates = { ...updates };
         
         // If driver assignment is being updated
-        if ('motoristaId' in updates) {
-          const selectedId = updates.motoristaId;
+        if ('motoristaId' in updates || 'entregadorId' in updates) {
+          const selectedId = updates.motoristaId || updates.entregadorId;
           if (selectedId) {
             const dbUsers = Database.getUsers(currentUser.companyId);
             const dbDrivers = Database.getDrivers(currentUser.companyId);
             const drvObj = dbDrivers.find(drv => drv.id === selectedId);
-            const assocUser = dbUsers.find(u => u.motoristaId === selectedId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase()) || (drvObj?.nome && u.nome?.toLowerCase() === drvObj.nome.toLowerCase()));
+            const assocUser = dbUsers.find(u => u.motoristaId === selectedId || u.id === selectedId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase()) || (drvObj?.nome && u.nome?.toLowerCase() === drvObj.nome.toLowerCase()));
 
-            finalUpdates.entregadorId = updates.entregadorId || assocUser?.id || undefined;
-            finalUpdates.entregadorNome = updates.entregadorNome || drvObj?.nome || assocUser?.nome || undefined;
+            finalUpdates.motoristaId = selectedId;
+            finalUpdates.entregadorId = updates.entregadorId || assocUser?.id || drvObj?.id || selectedId;
+            finalUpdates.entregadorNome = updates.entregadorNome || drvObj?.nome || assocUser?.nome || 'Entregador';
             
             // Advance status immediately to 'aguardando_motorista' so the driver can see and start it
             if (d.status === 'venda_realizada' || d.status === 'nf_emitida' || d.status === 'separacao') {
               finalUpdates.status = 'aguardando_motorista';
             }
           } else {
+            finalUpdates.motoristaId = undefined;
             finalUpdates.entregadorId = undefined;
             finalUpdates.entregadorNome = undefined;
           }
@@ -293,11 +299,15 @@ export default function App() {
     Database.saveDeliveries(currentUser.companyId, updated);
   };
 
-  const handleDeleteDelivery = (id: string) => {
+  const handleDeleteDelivery = async (id: string, options?: { deleteFiles?: boolean; motivo?: string }) => {
     if (!currentUser || !currentCompany) return;
-    const updated = deliveries.filter(d => d.id !== id);
-    setDeliveries(updated);
-    Database.saveDeliveries(currentUser.companyId, updated);
+    setDeliveries(prev => prev.filter(d => d.id !== id));
+    await Database.deleteDelivery(currentUser.companyId, id, {
+      ...options,
+      usuarioNome: currentUser.nome || currentUser.email,
+      usuarioId: currentUser.id
+    });
+    loadCompanyData(currentUser.companyId);
   };
 
   const handleAddDriver = async (newDrv: Omit<Motorista, 'id' | 'companyId' | 'criadoEm'>) => {
@@ -864,6 +874,8 @@ export default function App() {
             drivers={drivers}
             vehicles={vehicles}
             users={users}
+            clients={clients}
+            auditLogs={auditLogs}
             onAddDelivery={handleAddDelivery}
             onUpdateDelivery={handleUpdateDelivery}
             onDeleteDelivery={handleDeleteDelivery}

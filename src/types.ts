@@ -121,6 +121,57 @@ export interface HistoricoStatus {
   motivo?: string;
 }
 
+export interface Cliente {
+  id: string;
+  companyId: string;
+  nome: string;
+  telefone: string;
+  whatsapp?: string;
+  documento?: string;
+  email?: string;
+  endereco?: string;
+  bairro?: string;
+  cidade?: string;
+  cep?: string;
+  ativo: boolean;
+  criadoEm: string;
+}
+
+export interface RegistroAuditoria {
+  id: string;
+  companyId: string;
+  tipoAcao: 'exclusao_cliente' | 'exclusao_massa_clientes' | 'limpeza_banco' | 'exclusao_entrega';
+  descricao: string;
+  usuarioNome: string;
+  usuarioId: string;
+  detalhes?: {
+    clienteNome?: string;
+    clienteDocumento?: string;
+    entregaId?: string;
+    numeroNF?: string;
+    motivo?: string;
+    deleteFiles?: boolean;
+    qtdClientesRemovidos?: number;
+    qtdEntregasRemovidas?: number;
+    espacoLiberadoBytes?: number;
+    periodoReferencia?: string;
+  };
+  dataHora: string;
+}
+
+export interface StorageMetrics {
+  totalClientes: number;
+  totalClientesAtivos: number;
+  totalClientesExcluidos: number;
+  totalEntregas: number;
+  totalComprovantes: number;
+  totalFotos: number;
+  totalDocumentos: number;
+  espacoUtilizadoBytes: number;
+  espacoUtilizadoFormatted: string;
+  percentualUso: number;
+}
+
 export interface Entrega {
   id: string;
   companyId: string; // Isolamento por empresa
@@ -141,6 +192,7 @@ export interface Entrega {
   ordemRota?: number;
   dataEntregaPrevista: string; // YYYY-MM-DD
   horaEntregaPrevista?: string; // HH:MM
+  isAgendada?: boolean; // Indicação de entrega agendada
   observacoes?: string;
   prioridade: 'alta' | 'media' | 'baixa';
   motivoNaoEntregue?: string;

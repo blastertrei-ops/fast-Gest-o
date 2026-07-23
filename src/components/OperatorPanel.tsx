@@ -11,8 +11,10 @@ import {
 } from 'lucide-react';
 import { 
   Entrega, Motorista, Veiculo, Usuario, Empresa, EntregaStatus, 
-  FormaPagamento, StatusPagamento, EnderecoInfo, ClienteInfo, HistoricoStatus 
+  FormaPagamento, StatusPagamento, EnderecoInfo, ClienteInfo, HistoricoStatus,
+  Cliente, RegistroAuditoria 
 } from '../types';
+import { Database } from '../lib/db';
 import QrCodeGenerator from './QrCodeGenerator';
 import ReportPanel from './ReportPanel';
 
@@ -23,9 +25,11 @@ interface OperatorPanelProps {
   drivers: Motorista[];
   vehicles: Veiculo[];
   users: Usuario[];
+  clients?: Cliente[];
+  auditLogs?: RegistroAuditoria[];
   onAddDelivery: (delivery: Omit<Entrega, 'id' | 'companyId' | 'criadoPor' | 'criadoEm' | 'atualizadoEm' | 'origem' | 'historico'>) => Promise<void> | void;
   onUpdateDelivery: (id: string, updates: Partial<Entrega>) => void;
-  onDeleteDelivery: (id: string) => void;
+  onDeleteDelivery: (id: string, options?: { deleteFiles?: boolean; motivo?: string }) => void | Promise<void>;
   onAddDriver: (driver: Omit<Motorista, 'id' | 'companyId' | 'criadoEm'>) => void;
   onUpdateDriver: (id: string, updates: Partial<Motorista>) => void;
   onDeleteDriver: (id: string) => void;
@@ -44,6 +48,8 @@ export default function OperatorPanel({
   drivers,
   vehicles,
   users,
+  clients = [],
+  auditLogs = [],
   onAddDelivery,
   onUpdateDelivery,
   onDeleteDelivery,
@@ -57,11 +63,12 @@ export default function OperatorPanel({
   onUpdateUserStatus
 }: OperatorPanelProps) {
   // Navigation / Tab States
-  const [activeTab, setActiveTab] = useState<'entregas' | 'motoristas' | 'veiculos' | 'colaboradores' | 'relatorios'>('entregas');
+  const [activeTab, setActiveTab] = useState<'entregas' | 'clientes' | 'motoristas' | 'veiculos' | 'colaboradores' | 'relatorios'>('entregas');
   const [statusFilter, setStatusFilter] = useState<string>('todas');
   const [driverFilter, setDriverFilter] = useState<string>('todos');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dateViewMode, setDateViewMode] = useState<'hoje' | 'data_selecionada' | 'agendadas' | 'todas'>('hoje');
 
   // Form Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -75,6 +82,33 @@ export default function OperatorPanel({
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [scannedQrCode, setScannedQrCode] = useState<string>('');
   const [showScannerModal, setShowScannerModal] = useState(false);
+
+  // Edit Delivery Form States
+  const [showEditDeliveryModal, setShowEditDeliveryModal] = useState(false);
+  const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null);
+  const [editNF, setEditNF] = useState('');
+  const [editPedido, setEditPedido] = useState('');
+  const [editClientName, setEditClientName] = useState('');
+  const [editClientPhone, setEditClientPhone] = useState('');
+  const [editClientWhatsapp, setEditClientWhatsapp] = useState('');
+  const [editClientDoc, setEditClientDoc] = useState('');
+  const [editRua, setEditRua] = useState('');
+  const [editNumero, setEditNumero] = useState('');
+  const [editBairro, setEditBairro] = useState('');
+  const [editCidade, setEditCidade] = useState('');
+  const [editComplemento, setEditComplemento] = useState('');
+  const [editCEP, setEditCEP] = useState('');
+  const [editVolumes, setEditVolumes] = useState(1);
+  const [editValor, setEditValor] = useState('');
+  const [editFrete, setEditFrete] = useState('');
+  const [editFormaPagamento, setEditFormaPagamento] = useState<FormaPagamento>('ja_pago');
+  const [editStatusPagamento, setEditStatusPagamento] = useState<StatusPagamento>('pago');
+  const [editMotoristaId, setEditMotoristaId] = useState('');
+  const [editPrioridade, setEditPrioridade] = useState<'alta' | 'media' | 'baixa'>('media');
+  const [editHora, setEditHora] = useState('');
+  const [editDateEntrega, setEditDateEntrega] = useState('');
+  const [editIsAgendada, setEditIsAgendada] = useState(false);
+  const [editObs, setEditObs] = useState('');
 
   // New Delivery Form States
   const [newNF, setNewNF] = useState('');
@@ -99,6 +133,71 @@ export default function OperatorPanel({
   const [newObs, setNewObs] = useState('');
   const [newPrioridade, setNewPrioridade] = useState<'alta' | 'media' | 'baixa'>('media');
   const [newHora, setNewHora] = useState('');
+  const [newDateEntrega, setNewDateEntrega] = useState(() => new Date().toISOString().split('T')[0]);
+  const [newIsAgendada, setNewIsAgendada] = useState(false);
+
+  // Client Management States
+  const [clientSearchQuery, setClientSearchQuery] = useState('');
+  const [selectedClientToDelete, setSelectedClientToDelete] = useState<Cliente | null>(null);
+  const [showDeleteClientModal, setShowDeleteClientModal] = useState(false);
+  const [clientDeleteError, setClientDeleteError] = useState<string | null>(null);
+  const [clientDeleteActiveNFs, setClientDeleteActiveNFs] = useState<string[]>([]);
+  const [isDeletingClient, setIsDeletingClient] = useState(false);
+
+  // Delete Delivery Modal States
+  const [showDeleteDeliveryModal, setShowDeleteDeliveryModal] = useState(false);
+  const [deliveryToDelete, setDeliveryToDelete] = useState<Entrega | null>(null);
+  const [deleteFilesOption, setDeleteFilesOption] = useState<'only_delivery' | 'delivery_and_files'>('only_delivery');
+  const [deleteDeliveryMotivo, setDeleteDeliveryMotivo] = useState('');
+  const [isDeletingDelivery, setIsDeletingDelivery] = useState(false);
+
+  const handleOpenDeleteDeliveryModal = (delivery: Entrega) => {
+    setDeliveryToDelete(delivery);
+    setDeleteFilesOption('only_delivery');
+    setDeleteDeliveryMotivo('');
+    setShowDeleteDeliveryModal(true);
+  };
+
+  const handleConfirmDeleteDelivery = async () => {
+    if (!deliveryToDelete) return;
+    setIsDeletingDelivery(true);
+    try {
+      const hasFiles = Boolean(
+        deliveryToDelete.comprovante?.assinaturaUrl ||
+        deliveryToDelete.comprovante?.fotoProdutoUrl ||
+        deliveryToDelete.comprovante?.fotoFachadaUrl
+      );
+
+      const deleteFiles = hasFiles ? deleteFilesOption === 'delivery_and_files' : false;
+
+      await onDeleteDelivery(deliveryToDelete.id, {
+        deleteFiles,
+        motivo: deleteDeliveryMotivo.trim() || undefined
+      });
+
+      setShowDeleteDeliveryModal(false);
+      if (selectedDelivery?.id === deliveryToDelete.id) {
+        setSelectedDelivery(null);
+      }
+      setDeliveryToDelete(null);
+    } catch (err: any) {
+      alert(err?.message || 'Erro ao excluir a entrega.');
+    } finally {
+      setIsDeletingDelivery(false);
+    }
+  };
+  
+  // Add Client Form States
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [cNome, setCNome] = useState('');
+  const [cTelefone, setCTelefone] = useState('');
+  const [cWhatsapp, setCWhatsapp] = useState('');
+  const [cDocumento, setCDocumento] = useState('');
+  const [cEmail, setCEmail] = useState('');
+  const [cEndereco, setCEndereco] = useState('');
+  const [cBairro, setCBairro] = useState('');
+  const [cCidade, setCCidade] = useState('');
+  const [cCEP, setCCEP] = useState('');
 
   // New Driver Form States
   const [newDriverName, setNewDriverName] = useState('');
@@ -135,20 +234,20 @@ export default function OperatorPanel({
   const [newCollabDriverId, setNewCollabDriverId] = useState('');
 
   // Helpers
-  const formatCurrency = (val: number) => {
-    return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const formatCurrency = (val?: number | null) => {
+    return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr?: string | null) => {
     if (!dateStr) return '-';
-    const date = new Date(dateStr + 'T00:00:00');
-    return date.toLocaleDateString('pt-BR');
+    const date = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'));
+    return isNaN(date.getTime()) ? '-' : date.toLocaleDateString('pt-BR');
   };
 
-  const formatDateTime = (dateStr?: string) => {
+  const formatDateTime = (dateStr?: string | null) => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
-    return date.toLocaleString('pt-BR');
+    return isNaN(date.getTime()) ? '-' : date.toLocaleString('pt-BR');
   };
 
   const statusMap: Record<EntregaStatus, { label: string; color: string; bg: string }> = {
@@ -161,6 +260,45 @@ export default function OperatorPanel({
     nao_entregue: { label: 'Não Entregue', color: 'text-red-400', bg: 'bg-red-950/40 border-red-800/50' },
     cancelada: { label: 'Cancelada', color: 'text-slate-400', bg: 'bg-slate-900 border-slate-800' }
   };
+
+  // Unified Available Drivers List (combines Motoristas registry + Usuarios with motorista role)
+  const availableDrivers = useMemo(() => {
+    const list: { id: string; nome: string; telefone?: string; email?: string }[] = [];
+
+    // 1. Add registered drivers
+    drivers.forEach(drv => {
+      if (drv.ativo !== false) {
+        list.push({
+          id: drv.id,
+          nome: drv.nome,
+          telefone: drv.telefone,
+          email: drv.email
+        });
+      }
+    });
+
+    // 2. Add collaborator users with motorista role not already in list
+    users.forEach(usr => {
+      if (usr.role === 'motorista' && usr.ativo !== false) {
+        const alreadyExists = list.some(d => 
+          d.id === usr.motoristaId || 
+          d.id === usr.id ||
+          (usr.email && d.email && d.email.toLowerCase() === usr.email.toLowerCase()) ||
+          (d.nome.toLowerCase() === usr.nome.toLowerCase())
+        );
+        if (!alreadyExists) {
+          list.push({
+            id: usr.motoristaId || usr.id,
+            nome: usr.nome,
+            telefone: usr.telefone,
+            email: usr.email
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [drivers, users]);
 
   // Dashboard Statistics calculation
   const stats = useMemo(() => {
@@ -225,9 +363,9 @@ export default function OperatorPanel({
       const randomLat = baseLat + (Math.random() - 0.5) * 0.08;
       const randomLng = baseLng + (Math.random() - 0.5) * 0.08;
 
-      const selectedDriverObj = newMotoristaId ? drivers.find(drv => drv.id === newMotoristaId) : undefined;
+      const selectedDriverObj = newMotoristaId ? availableDrivers.find(drv => drv.id === newMotoristaId) : undefined;
       const matchingUser = newMotoristaId 
-        ? users.find(u => u.motoristaId === newMotoristaId || (selectedDriverObj?.email && u.email?.toLowerCase() === selectedDriverObj.email.toLowerCase())) 
+        ? users.find(u => u.motoristaId === newMotoristaId || u.id === newMotoristaId || (selectedDriverObj?.email && u.email?.toLowerCase() === selectedDriverObj.email.toLowerCase())) 
         : undefined;
 
       await onAddDelivery({
@@ -258,8 +396,9 @@ export default function OperatorPanel({
         motoristaId: newMotoristaId || undefined,
         entregadorId: matchingUser?.id || undefined,
         entregadorNome: selectedDriverObj?.nome || matchingUser?.nome || undefined,
-        dataEntregaPrevista: dateFilter,
+        dataEntregaPrevista: newDateEntrega || dateFilter,
         horaEntregaPrevista: newHora || undefined,
+        isAgendada: newIsAgendada || (newDateEntrega > new Date().toISOString().split('T')[0]),
         observacoes: newObs || undefined,
         prioridade: newPrioridade
       });
@@ -286,6 +425,8 @@ export default function OperatorPanel({
       setNewObs('');
       setNewPrioridade('media');
       setNewHora('');
+      setNewDateEntrega(new Date().toISOString().split('T')[0]);
+      setNewIsAgendada(false);
 
       // Close modal immediately
       setShowAddModal(false);
@@ -295,6 +436,85 @@ export default function OperatorPanel({
     } finally {
       setIsSubmittingDelivery(false);
     }
+  };
+
+  const handleOpenEditDeliveryModal = (d: Entrega) => {
+    setEditingDeliveryId(d.id);
+    setEditNF(d.numeroNF);
+    setEditPedido(d.numeroPedido || '');
+    setEditClientName(d.cliente.nome);
+    setEditClientPhone(d.cliente.telefone || '');
+    setEditClientWhatsapp(d.cliente.whatsapp || '');
+    setEditClientDoc(d.cliente.documento || '');
+    setEditRua(d.endereco.ruaNumero || '');
+    setEditNumero(d.endereco.numero || '');
+    setEditBairro(d.endereco.bairro || '');
+    setEditCidade(d.endereco.cidade || '');
+    setEditComplemento(d.endereco.complemento || '');
+    setEditCEP(d.endereco.cep || '');
+    setEditVolumes(d.volumes || 1);
+    setEditValor(d.valorVenda ? d.valorVenda.toString() : '');
+    setEditFrete(d.valorFrete ? d.valorFrete.toString() : '');
+    setEditFormaPagamento(d.formaPagamento);
+    setEditStatusPagamento(d.statusPagamento);
+    setEditMotoristaId(d.motoristaId || d.entregadorId || '');
+    setEditPrioridade(d.prioridade || 'media');
+    setEditHora(d.horaEntregaPrevista || '');
+    setEditDateEntrega(d.dataEntregaPrevista || new Date().toISOString().split('T')[0]);
+    setEditIsAgendada(d.isAgendada || false);
+    setEditObs(d.observacoes || '');
+    setShowEditDeliveryModal(true);
+  };
+
+  const handleSaveEditDelivery = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDeliveryId) return;
+
+    const numericValor = parseFloat(editValor.toString().replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
+    const numericFrete = editFrete ? parseFloat(editFrete.toString().replace('R$', '').replace(/\./g, '').replace(',', '.')) || undefined : undefined;
+
+    const drvObj = editMotoristaId ? availableDrivers.find(drv => drv.id === editMotoristaId) : undefined;
+    const assocUser = editMotoristaId ? users.find(u => u.motoristaId === editMotoristaId || u.id === editMotoristaId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase())) : undefined;
+
+    const updates: Partial<Entrega> = {
+      numeroNF: editNF,
+      numeroPedido: editPedido || undefined,
+      cliente: {
+        nome: editClientName,
+        telefone: editClientPhone,
+        whatsapp: editClientWhatsapp || undefined,
+        documento: editClientDoc || undefined,
+      },
+      endereco: {
+        ruaNumero: editRua,
+        numero: editNumero,
+        bairro: editBairro,
+        cidade: editCidade,
+        cep: editCEP,
+        complemento: editComplemento || undefined,
+        latitude: -23.55052,
+        longitude: -46.633308,
+      },
+      volumes: Number(editVolumes) || 1,
+      valorVenda: numericValor,
+      valorFrete: numericFrete,
+      formaPagamento: editFormaPagamento,
+      statusPagamento: editStatusPagamento,
+      motoristaId: editMotoristaId || undefined,
+      entregadorId: assocUser?.id || drvObj?.id || editMotoristaId || undefined,
+      entregadorNome: drvObj?.nome || assocUser?.nome || undefined,
+      prioridade: editPrioridade,
+      horaEntregaPrevista: editHora || undefined,
+      dataEntregaPrevista: editDateEntrega,
+      isAgendada: editIsAgendada,
+      observacoes: editObs || undefined,
+    };
+
+    onUpdateDelivery(editingDeliveryId, updates);
+    if (selectedDelivery?.id === editingDeliveryId) {
+      setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
+    }
+    setShowEditDeliveryModal(false);
   };
 
   // Handle Create Driver
@@ -440,15 +660,23 @@ export default function OperatorPanel({
 
   // Filter & Search deliveries
   const filteredDeliveries = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+
     return deliveries.filter(d => {
-      // Date Check
-      if (d.dataEntregaPrevista !== dateFilter) return false;
+      // Date Check according to dateViewMode
+      if (dateViewMode === 'hoje') {
+        if (d.dataEntregaPrevista !== todayStr) return false;
+      } else if (dateViewMode === 'data_selecionada') {
+        if (d.dataEntregaPrevista !== dateFilter) return false;
+      } else if (dateViewMode === 'agendadas') {
+        if (!d.isAgendada && d.dataEntregaPrevista <= todayStr) return false;
+      } // 'todas' shows all dates
 
       // Status Check
       if (statusFilter !== 'todas' && d.status !== statusFilter) return false;
 
       // Driver Check
-      if (driverFilter !== 'todos' && d.motoristaId !== driverFilter) return false;
+      if (driverFilter !== 'todos' && d.motoristaId !== driverFilter && d.entregadorId !== driverFilter) return false;
 
       // Search queries (NF, Pedido, Cliente, Telefone, Endereço, Entregador)
       if (searchQuery.trim() !== '') {
@@ -459,7 +687,7 @@ export default function OperatorPanel({
         const phoneMatch = d.cliente.telefone.includes(query) || d.cliente.whatsapp?.includes(query);
         const addressMatch = d.endereco.ruaNumero.toLowerCase().includes(query) || d.endereco.bairro.toLowerCase().includes(query);
         
-        const driverName = drivers.find(drv => drv.id === d.motoristaId)?.nome.toLowerCase() || '';
+        const driverName = availableDrivers.find(drv => drv.id === d.motoristaId || drv.id === d.entregadorId)?.nome.toLowerCase() || d.entregadorNome?.toLowerCase() || '';
         const driverMatch = driverName.includes(query);
 
         return nfMatch || orderMatch || clientMatch || phoneMatch || addressMatch || driverMatch;
@@ -467,7 +695,7 @@ export default function OperatorPanel({
 
       return true;
     });
-  }, [deliveries, dateFilter, statusFilter, driverFilter, searchQuery, drivers]);
+  }, [deliveries, dateFilter, dateViewMode, statusFilter, driverFilter, searchQuery, availableDrivers]);
 
   // QR Code Simulator
   const handleScanQrCodeSimulate = () => {
@@ -483,6 +711,90 @@ export default function OperatorPanel({
       alert('Nenhuma entrega correspondente encontrada para este QR Code.');
     }
   };
+
+  // CLIENT MANAGEMENT HANDLERS
+  const handleCreateClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cNome || !cTelefone) {
+      alert('Nome e Telefone são campos obrigatórios.');
+      return;
+    }
+
+    try {
+      await Database.saveClient(company.id, {
+        nome: cNome,
+        telefone: cTelefone,
+        whatsapp: cWhatsapp || undefined,
+        documento: cDocumento || undefined,
+        email: cEmail || undefined,
+        endereco: cEndereco || undefined,
+        bairro: cBairro || undefined,
+        cidade: cCidade || 'São Paulo',
+        cep: cCEP || undefined,
+        ativo: true
+      });
+
+      setCNome('');
+      setCTelefone('');
+      setCWhatsapp('');
+      setCDocumento('');
+      setCEmail('');
+      setCEndereco('');
+      setCBairro('');
+      setCCidade('');
+      setCCEP('');
+      setShowAddClientModal(false);
+    } catch (err: any) {
+      alert(err?.message || 'Erro ao cadastrar cliente.');
+    }
+  };
+
+  const confirmDeleteClient = (client: Cliente) => {
+    setSelectedClientToDelete(client);
+    setClientDeleteError(null);
+    setClientDeleteActiveNFs([]);
+    setShowDeleteClientModal(true);
+  };
+
+  const handleExecuteDeleteClient = async () => {
+    if (!selectedClientToDelete) return;
+    setIsDeletingClient(true);
+    setClientDeleteError(null);
+    setClientDeleteActiveNFs([]);
+
+    try {
+      const res = await Database.deleteClient(
+        company.id,
+        selectedClientToDelete.id
+      );
+
+      if (res.success) {
+        setShowDeleteClientModal(false);
+        setSelectedClientToDelete(null);
+      } else {
+        setClientDeleteError(res.error || 'Não foi possível excluir o cliente.');
+        if (res.activeDeliveries) {
+          setClientDeleteActiveNFs(res.activeDeliveries);
+        }
+      }
+    } catch (err: any) {
+      setClientDeleteError(err?.message || 'Erro ao processar a exclusão.');
+    } finally {
+      setIsDeletingClient(false);
+    }
+  };
+
+  const filteredClients = useMemo(() => {
+    if (!clientSearchQuery.trim()) return clients;
+    const q = clientSearchQuery.toLowerCase();
+    return clients.filter(c => 
+      c.nome.toLowerCase().includes(q) ||
+      c.telefone.includes(q) ||
+      (c.documento && c.documento.includes(q)) ||
+      (c.email && c.email.toLowerCase().includes(q)) ||
+      (c.bairro && c.bairro.toLowerCase().includes(q))
+    );
+  }, [clients, clientSearchQuery]);
 
   // PRINT RECEIPT LAYOUT SIMULATION (PDF Receipt Generation)
   const printOfficialReceipt = () => {
@@ -584,7 +896,7 @@ export default function OperatorPanel({
               <div style="margin-top: 8px;" class="grid-2">
                 <div>
                   <span class="label">Data / Hora Conclusão</span>
-                  <div class="val">${selectedDelivery.comprovante?.dataHoraEntrega ? new Date(selectedDelivery.comprovante.dataHoraEntrega).toLocaleString('pt-BR') : '-'}</div>
+                  <div class="val">${selectedDelivery.comprovante?.dataHoraEntrega && !isNaN(new Date(selectedDelivery.comprovante.dataHoraEntrega).getTime()) ? new Date(selectedDelivery.comprovante.dataHoraEntrega).toLocaleString('pt-BR') : '-'}</div>
                 </div>
                 <div>
                   <span class="label">Localização de Precisão GPS</span>
@@ -641,6 +953,14 @@ export default function OperatorPanel({
           >
             <Package className="w-4 h-4" />
             Entregas
+          </button>
+
+          <button
+            onClick={() => setActiveTab('clientes')}
+            className={`px-4 py-3 text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative border-b-2 ${activeTab === 'clientes' ? 'border-amber-500 text-amber-500 bg-slate-800/40 font-extrabold' : 'border-transparent text-slate-400 hover:text-white'}`}
+          >
+            <Users className="w-4 h-4 text-amber-500" />
+            Clientes
           </button>
           
           <button
@@ -759,16 +1079,33 @@ export default function OperatorPanel({
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-3">
                 
-                {/* Date select */}
+                {/* Date View Mode */}
                 <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase mb-1">Previsão</span>
-                  <input
-                    type="date"
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500"
-                  />
+                  <span className="text-[10px] font-bold text-amber-500 uppercase mb-1">Visualização</span>
+                  <select
+                    value={dateViewMode}
+                    onChange={(e) => setDateViewMode(e.target.value as any)}
+                    className="bg-slate-950 border border-amber-500/40 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="hoje">Entregas de Hoje</option>
+                    <option value="data_selecionada">Data Específica</option>
+                    <option value="agendadas">Agendadas / Futuras</option>
+                    <option value="todas">Todas as Datas</option>
+                  </select>
                 </div>
+
+                {/* Date select */}
+                {dateViewMode === 'data_selecionada' && (
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase mb-1">Data Específica</span>
+                    <input
+                      type="date"
+                      value={dateFilter}
+                      onChange={(e) => setDateFilter(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                )}
 
                 {/* Status select */}
                 <div className="flex flex-col">
@@ -796,10 +1133,10 @@ export default function OperatorPanel({
                   <select
                     value={driverFilter}
                     onChange={(e) => setDriverFilter(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500"
+                    className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
                   >
-                    <option value="todos">Todos os Entregadores</option>
-                    {drivers.map(d => (
+                    <option value="todos">Todos os Entregadores ({availableDrivers.length})</option>
+                    {availableDrivers.map(d => (
                       <option key={d.id} value={d.id}>{d.nome}</option>
                     ))}
                   </select>
@@ -879,11 +1216,35 @@ export default function OperatorPanel({
                             <span className="font-bold text-slate-300 font-mono">{delivery.volumes} vol</span>
                           </div>
 
-                          <div className="flex flex-col text-slate-500">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600">Motorista</span>
-                            <span className="font-bold text-slate-300 truncate max-w-24">
-                              {driverObj ? driverObj.nome : 'Não escalado'}
-                            </span>
+                          <div className="flex flex-col text-slate-500" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600 mb-0.5">Motorista</span>
+                            <select
+                              value={delivery.motoristaId || delivery.entregadorId || ''}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                const selectedId = e.target.value || undefined;
+                                const assocUser = users.find(u => u.motoristaId === selectedId || u.id === selectedId);
+                                const drvObj = availableDrivers.find(drv => drv.id === selectedId);
+                                const updates: any = {
+                                  motoristaId: selectedId,
+                                  entregadorId: assocUser?.id || drvObj?.id || selectedId || undefined,
+                                  entregadorNome: drvObj?.nome || assocUser?.nome || undefined
+                                };
+                                if (selectedId && (delivery.status === 'venda_realizada' || delivery.status === 'nf_emitida' || delivery.status === 'separacao')) {
+                                  updates.status = 'aguardando_motorista';
+                                }
+                                onUpdateDelivery(delivery.id, updates);
+                                if (selectedDelivery?.id === delivery.id) {
+                                  setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
+                                }
+                              }}
+                              className="bg-slate-950 border border-slate-700/80 hover:border-amber-500 text-amber-400 font-bold text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer max-w-[140px] truncate"
+                            >
+                              <option value="">-- Escalar --</option>
+                              {availableDrivers.map(drv => (
+                                <option key={drv.id} value={drv.id}>{drv.nome}</option>
+                              ))}
+                            </select>
                           </div>
 
                           <div className="flex flex-col text-right">
@@ -910,12 +1271,31 @@ export default function OperatorPanel({
                         <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">DETALHES DA ENTREGA</span>
                         <h2 className="text-sm font-bold text-white">NF {selectedDelivery.numeroNF}</h2>
                       </div>
-                      <button
-                        onClick={() => setSelectedDelivery(null)}
-                        className="text-xs text-slate-400 hover:text-white"
-                      >
-                        Fechar
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleOpenEditDeliveryModal(selectedDelivery)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-amber-300 text-xs font-bold rounded-lg transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          Editar
+                        </button>
+                        {(currentUser.role === 'admin' || currentUser.role === 'master' || currentUser.role === 'operador') && (
+                          <button
+                            onClick={() => handleOpenDeleteDeliveryModal(selectedDelivery)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/20 border border-red-500/40 hover:bg-red-500/30 text-red-300 text-xs font-bold rounded-lg transition-colors"
+                            id="btn-delete-delivery"
+                          >
+                            <Trash className="w-3.5 h-3.5" />
+                            Excluir
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setSelectedDelivery(null)}
+                          className="text-xs text-slate-400 hover:text-white px-2 py-1 bg-slate-900 rounded"
+                        >
+                          Fechar
+                        </button>
+                      </div>
                     </div>
 
                     <div className="p-4 space-y-4 text-xs">
@@ -970,15 +1350,65 @@ export default function OperatorPanel({
                         </div>
                       </div>
 
-                      {/* Payment */}
-                      <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-850 flex items-center justify-between">
-                        <div>
-                          <span className="text-[9px] text-slate-500 font-bold uppercase block">Forma Pagamento</span>
-                          <span className="font-bold text-white text-xs uppercase">{selectedDelivery.formaPagamento.replace('_', ' ')}</span>
+                      {/* Payment & Priority Interactive Controls */}
+                      <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-850 space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Forma Pagamento</span>
+                            <select
+                              value={selectedDelivery.formaPagamento}
+                              onChange={(e) => {
+                                const val = e.target.value as FormaPagamento;
+                                onUpdateDelivery(selectedDelivery.id, { formaPagamento: val });
+                                setSelectedDelivery(prev => prev ? { ...prev, formaPagamento: val } : null);
+                              }}
+                              className="w-full bg-slate-900 border border-slate-700/80 text-white font-bold text-xs rounded px-2 py-1.5 focus:outline-none focus:border-amber-500 cursor-pointer"
+                            >
+                              <option value="ja_pago" className="bg-slate-900 text-white">Já Pago no Site/Loja</option>
+                              <option value="pix" className="bg-slate-900 text-white">PIX na entrega</option>
+                              <option value="dinheiro" className="bg-slate-900 text-white">Dinheiro na entrega</option>
+                              <option value="cartao_credito" className="bg-slate-900 text-white">Cartão de Crédito</option>
+                              <option value="cartao_debito" className="bg-slate-900 text-white">Cartão de Débito</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Status Pagamento</span>
+                            <select
+                              value={selectedDelivery.statusPagamento}
+                              onChange={(e) => {
+                                const val = e.target.value as StatusPagamento;
+                                onUpdateDelivery(selectedDelivery.id, { statusPagamento: val });
+                                setSelectedDelivery(prev => prev ? { ...prev, statusPagamento: val } : null);
+                              }}
+                              className={`w-full font-bold text-xs rounded px-2 py-1.5 border focus:outline-none cursor-pointer ${
+                                selectedDelivery.statusPagamento === 'pago' 
+                                  ? 'bg-emerald-950/80 border-emerald-800 text-emerald-300' 
+                                  : 'bg-red-950/80 border-red-800 text-red-300'
+                              }`}
+                            >
+                              <option value="pago" className="bg-slate-900 text-emerald-400">PAGO / RECEBIDO</option>
+                              <option value="receber_na_entrega" className="bg-slate-900 text-red-400">RECEBER NA ENTREGA</option>
+                            </select>
+                          </div>
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${selectedDelivery.statusPagamento === 'pago' ? 'bg-emerald-950 border border-emerald-800 text-emerald-400' : 'bg-red-950 border border-red-900 text-red-400'}`}>
-                          {selectedDelivery.statusPagamento === 'pago' ? 'PAGO / RECEBIDO' : 'PAGAR NA ENTREGA'}
-                        </span>
+
+                        <div>
+                          <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Prioridade</span>
+                          <select
+                            value={selectedDelivery.prioridade || 'media'}
+                            onChange={(e) => {
+                              const val = e.target.value as any;
+                              onUpdateDelivery(selectedDelivery.id, { prioridade: val });
+                              setSelectedDelivery(prev => prev ? { ...prev, prioridade: val } : null);
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700/80 text-amber-400 font-bold text-xs rounded px-2 py-1.5 focus:outline-none focus:border-amber-500 cursor-pointer"
+                          >
+                            <option value="baixa" className="bg-slate-900 text-slate-300">Baixa</option>
+                            <option value="media" className="bg-slate-900 text-white">Média</option>
+                            <option value="alta" className="bg-slate-900 text-red-400">Alta / Urgente</option>
+                          </select>
+                        </div>
                       </div>
 
                       {/* QR Code integration display (Click to scan simulation) */}
@@ -1042,17 +1472,17 @@ export default function OperatorPanel({
 
                           {/* Driver Assignment Dropdown */}
                           <div className="space-y-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase block">Motorista Responsável</label>
+                            <label className="text-[9px] font-bold text-slate-500 uppercase block">Motorista Responsável / Entregador</label>
                             <select
-                              value={selectedDelivery.motoristaId || ''}
+                              value={selectedDelivery.motoristaId || selectedDelivery.entregadorId || ''}
                               onChange={(e) => {
                                 const selectedId = e.target.value || undefined;
-                                const assocUser = users.find(u => u.motoristaId === selectedId);
-                                const drvObj = drivers.find(drv => drv.id === selectedId);
+                                const assocUser = users.find(u => u.motoristaId === selectedId || u.id === selectedId);
+                                const drvObj = availableDrivers.find(drv => drv.id === selectedId);
                                 const updates: any = {
                                   motoristaId: selectedId,
-                                  entregadorId: assocUser?.id || undefined,
-                                  entregadorNome: drvObj?.nome || undefined
+                                  entregadorId: assocUser?.id || drvObj?.id || selectedId || undefined,
+                                  entregadorNome: drvObj?.nome || assocUser?.nome || undefined
                                 };
                                 // If assigning a driver to a pending prep delivery, advance status to ready/awaiting driver
                                 if (selectedId && (selectedDelivery.status === 'venda_realizada' || selectedDelivery.status === 'nf_emitida' || selectedDelivery.status === 'separacao')) {
@@ -1061,13 +1491,18 @@ export default function OperatorPanel({
                                 onUpdateDelivery(selectedDelivery.id, updates);
                                 setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
                               }}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs font-semibold focus:outline-none focus:border-amber-500 text-white"
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs font-bold focus:outline-none focus:border-amber-500 text-amber-400 cursor-pointer"
                             >
                               <option value="">-- Selecionar Motorista --</option>
-                              {drivers.map(drv => (
-                                <option key={drv.id} value={drv.id}>{drv.nome}</option>
+                              {availableDrivers.map(drv => (
+                                <option key={drv.id} value={drv.id}>{drv.nome} ({drv.telefone || 'Sem tel'})</option>
                               ))}
                             </select>
+                            {availableDrivers.length === 0 && (
+                              <p className="text-[10px] text-amber-400 mt-1">
+                                ⚠️ Nenhum entregador cadastrado na empresa.
+                              </p>
+                            )}
                           </div>
 
                           {/* Order Index */}
@@ -1127,8 +1562,8 @@ export default function OperatorPanel({
                             <div className="bg-slate-950/40 p-2.5 rounded-lg border border-slate-850 font-mono text-[10px] space-y-1 text-slate-400">
                               <p><span className="text-white">Recebedor:</span> {selectedDelivery.comprovante?.recebedorNome || selectedDelivery.cliente.nome}</p>
                               <p><span className="text-white">Data/Hora:</span> {formatDateTime(selectedDelivery.comprovante?.dataHoraEntrega)}</p>
-                              {selectedDelivery.comprovante?.latitudeEntrega && (
-                                <p><span className="text-white">GPS:</span> {selectedDelivery.comprovante.latitudeEntrega.toFixed(6)}, {selectedDelivery.comprovante.longitudeEntrega?.toFixed(6)}</p>
+                              {selectedDelivery.comprovante?.latitudeEntrega != null && (
+                                <p><span className="text-white">GPS:</span> {Number(selectedDelivery.comprovante.latitudeEntrega).toFixed(6)}, {Number(selectedDelivery.comprovante.longitudeEntrega || 0).toFixed(6)}</p>
                               )}
                             </div>
 
@@ -1164,10 +1599,23 @@ export default function OperatorPanel({
                             {selectedDelivery.historico.map(h => (
                               <div key={h.id} className="border-l border-slate-800 pl-2 text-[10px] text-slate-500">
                                 <span className="font-bold text-slate-400">{h.statusNovo.toUpperCase()}</span>
-                                <span className="block">Por {h.alteradoPor} às {new Date(h.alteradoEm).toLocaleTimeString()}</span>
+                                <span className="block">Por {h.alteradoPor} às {h.alteradoEm && !isNaN(new Date(h.alteradoEm).getTime()) ? new Date(h.alteradoEm).toLocaleTimeString('pt-BR') : '-'}</span>
                               </div>
                             ))}
                           </div>
+                        </div>
+                      )}
+
+                      {/* Excluir Entrega Action Button */}
+                      {(currentUser.role === 'admin' || currentUser.role === 'master' || currentUser.role === 'operador') && (
+                        <div className="border-t border-slate-800 pt-3">
+                          <button
+                            onClick={() => handleOpenDeleteDeliveryModal(selectedDelivery)}
+                            className="w-full py-2.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 transition-colors rounded-lg font-bold text-xs flex items-center justify-center gap-2"
+                          >
+                            <Trash className="w-4 h-4" />
+                            Excluir Entrega do Sistema
+                          </button>
                         </div>
                       )}
 
@@ -1184,6 +1632,101 @@ export default function OperatorPanel({
 
             </div>
 
+          </div>
+        )}
+
+        {/* TAB 1.5: CLIENTES MANAGEMENT */}
+        {activeTab === 'clientes' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-500" />
+                  Gestão de Clientes
+                </h2>
+                <p className="text-xs text-slate-400">Base unificada de clientes com verificação de integridade e auditoria</p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1 md:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    type="text"
+                    value={clientSearchQuery}
+                    onChange={(e) => setClientSearchQuery(e.target.value)}
+                    placeholder="Buscar nome, CPF/CNPJ, tel..."
+                    className="w-full pl-9 pr-4 py-1.5 bg-slate-950 border border-slate-800 text-xs text-white rounded-lg focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <button
+                  onClick={() => setShowAddClientModal(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg shadow-sm shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  Novo Cliente
+                </button>
+              </div>
+            </div>
+
+            {filteredClients.length === 0 ? (
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
+                <Users className="w-12 h-12 text-slate-700 mx-auto mb-3" />
+                <h3 className="font-bold text-white text-sm mb-1">Nenhum cliente encontrado</h3>
+                <p className="text-xs max-w-sm mx-auto">Os clientes são salvos automaticamente ao gravar entregas ou podem ser cadastrados manualmente.</p>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-950/50 border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
+                        <th className="p-3">Cliente</th>
+                        <th className="p-3">Contato / WhatsApp</th>
+                        <th className="p-3">CPF / CNPJ</th>
+                        <th className="p-3">Endereço Principal</th>
+                        <th className="p-3 text-center">Status</th>
+                        <th className="p-3 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredClients.map(client => (
+                        <tr key={client.id} className="border-b border-slate-800/60 last:border-0 hover:bg-slate-800/20">
+                          <td className="p-3">
+                            <div className="font-bold text-white text-sm">{client.nome}</div>
+                            {client.email && <div className="text-[10px] text-slate-500">{client.email}</div>}
+                          </td>
+                          <td className="p-3">
+                            <div className="font-mono text-slate-300">{client.telefone}</div>
+                            {client.whatsapp && <div className="text-[10px] text-emerald-400 font-mono">WA: {client.whatsapp}</div>}
+                          </td>
+                          <td className="p-3 font-mono text-slate-400">
+                            {client.documento || '-'}
+                          </td>
+                          <td className="p-3 text-slate-300 max-w-xs truncate">
+                            {client.endereco ? `${client.endereco}, ${client.bairro || ''} - ${client.cidade || ''}` : '-'}
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${client.ativo ? 'bg-emerald-950 border border-emerald-800 text-emerald-400' : 'bg-red-950 border border-red-900 text-red-400'}`}>
+                              {client.ativo ? 'ATIVO' : 'INATIVO'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              onClick={() => confirmDeleteClient(client)}
+                              className="px-2.5 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-300 border border-red-900/50 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-1"
+                            >
+                              <Trash className="w-3.5 h-3.5" />
+                              Excluir Cliente
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1382,7 +1925,14 @@ export default function OperatorPanel({
 
         {/* TAB 5: REPORTS & PERFORMANCE (ADMIN ONLY) */}
         {activeTab === 'relatorios' && currentUser.role === 'admin' && (
-          <ReportPanel deliveries={deliveries} drivers={drivers} />
+          <ReportPanel 
+            companyId={company.id}
+            currentUser={currentUser}
+            deliveries={deliveries} 
+            drivers={drivers}
+            clients={clients}
+            auditLogs={auditLogs}
+          />
         )}
 
       </div>
@@ -1391,7 +1941,7 @@ export default function OperatorPanel({
 
       {/* 1. ADD NEW DELIVERY MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto select-none">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
           <form onSubmit={handleCreateDelivery} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-1.5">
@@ -1552,26 +2102,26 @@ export default function OperatorPanel({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-slate-400 mb-1">Forma de Pagamento</label>
+                    <label className="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
                     <select
                       value={newFormaPagamento} onChange={(e) => setNewFormaPagamento(e.target.value as FormaPagamento)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-slate-950 border border-slate-700/80 hover:border-amber-500 rounded-lg p-2.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer text-xs"
                     >
-                      <option value="ja_pago">Já Pago no Site/Loja</option>
-                      <option value="pix">PIX na entrega</option>
-                      <option value="dinheiro">Dinheiro na entrega</option>
-                      <option value="cartao_credito">Cartão de Crédito</option>
-                      <option value="cartao_debito">Cartão de Débito</option>
+                      <option value="ja_pago" className="bg-slate-900 text-white">Já Pago no Site/Loja</option>
+                      <option value="pix" className="bg-slate-900 text-white">PIX na entrega</option>
+                      <option value="dinheiro" className="bg-slate-900 text-white">Dinheiro na entrega</option>
+                      <option value="cartao_credito" className="bg-slate-900 text-white">Cartão de Crédito</option>
+                      <option value="cartao_debito" className="bg-slate-900 text-white">Cartão de Débito</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-400 mb-1">Status Pagamento</label>
+                    <label className="block text-slate-400 mb-1 font-semibold">Status Pagamento</label>
                     <select
                       value={newStatusPagamento} onChange={(e) => setNewStatusPagamento(e.target.value as StatusPagamento)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-slate-950 border border-slate-700/80 hover:border-amber-500 rounded-lg p-2.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer text-xs"
                     >
-                      <option value="pago">PAGO (Já liquidado)</option>
-                      <option value="receber_na_entrega">RECEBER NA ENTREGA</option>
+                      <option value="pago" className="bg-slate-900 text-emerald-400">PAGO (Já liquidado)</option>
+                      <option value="receber_na_entrega" className="bg-slate-900 text-red-400">RECEBER NA ENTREGA</option>
                     </select>
                   </div>
                 </div>
@@ -1580,16 +2130,42 @@ export default function OperatorPanel({
               {/* Rota */}
               <div className="space-y-4 pt-2">
                 <h4 className="font-bold text-amber-500 uppercase text-[10px] tracking-wider">Agendamento & Designação</h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Data da Entrega Prevista *</label>
+                    <input
+                      type="date"
+                      required
+                      value={newDateEntrega}
+                      onChange={(e) => setNewDateEntrega(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white font-bold focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-col justify-end pb-1">
+                    <label className="flex items-center gap-2 text-xs text-slate-300 font-bold cursor-pointer bg-slate-900 p-2 rounded-lg border border-slate-800 hover:border-amber-500/50">
+                      <input
+                        type="checkbox"
+                        checked={newIsAgendada}
+                        onChange={(e) => setNewIsAgendada(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-950 text-amber-500 focus:ring-amber-500 h-4 w-4"
+                      />
+                      Entrega Agendada
+                    </label>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-slate-400 mb-1">Prioridade</label>
+                    <label className="block text-slate-400 mb-1 font-semibold">Prioridade</label>
                     <select
                       value={newPrioridade} onChange={(e) => setNewPrioridade(e.target.value as any)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-slate-950 border border-slate-700/80 hover:border-amber-500 rounded-lg p-2.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer text-xs"
                     >
-                      <option value="baixa">Baixa</option>
-                      <option value="media">Média</option>
-                      <option value="alta">Alta / Urgente</option>
+                      <option value="baixa" className="bg-slate-900 text-slate-300">Baixa</option>
+                      <option value="media" className="bg-slate-900 text-white">Média</option>
+                      <option value="alta" className="bg-slate-900 text-red-400">Alta / Urgente</option>
                     </select>
                   </div>
                   <div>
@@ -1601,16 +2177,32 @@ export default function OperatorPanel({
                   </div>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Escalar Motorista</label>
+                  <label className="block text-slate-400 mb-1 font-semibold">Escalar Motorista / Entregador</label>
                   <select
                     value={newMotoristaId} onChange={(e) => setNewMotoristaId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-amber-400 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
                   >
                     <option value="">Não designar motorista agora</option>
-                    {drivers.map(drv => (
-                      <option key={drv.id} value={drv.id}>{drv.nome}</option>
+                    {availableDrivers.map(drv => (
+                      <option key={drv.id} value={drv.id}>{drv.nome} ({drv.telefone || 'Sem tel'})</option>
                     ))}
                   </select>
+                  {availableDrivers.length === 0 && (
+                    <div className="flex items-center justify-between gap-2 mt-2 p-2 bg-amber-950/30 border border-amber-800/40 rounded-lg text-amber-400 text-xs">
+                      <span>⚠️ Nenhum entregador cadastrado.</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddModal(false);
+                          setActiveTab('motoristas');
+                          setShowDriverModal(true);
+                        }}
+                        className="underline font-bold hover:text-white"
+                      >
+                        + Cadastrar Entregador
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1654,7 +2246,7 @@ export default function OperatorPanel({
 
       {/* 2. DRIVER REGISTRATION MODAL */}
       {showDriverModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto select-none">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
           <form onSubmit={handleCreateDriver} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-1.5">
@@ -1871,7 +2463,7 @@ export default function OperatorPanel({
 
       {/* 3. CANCEL DELIVERY MODAL */}
       {showCancelModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 select-none">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
             <h3 className="text-sm font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
               <AlertTriangle className="w-5 h-5 text-red-500" />
@@ -1909,7 +2501,7 @@ export default function OperatorPanel({
 
       {/* 4. USER COLLABORATOR REGISTER MODAL */}
       {showUserModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 select-none">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <form onSubmit={handleCreateCollab} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">Criar Usuário de Acesso</h3>
             
@@ -1980,7 +2572,7 @@ export default function OperatorPanel({
 
       {/* 5. QR CODE SCANNING SIMULATOR MODAL */}
       {showScannerModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 select-none">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
               <RefreshCw className="w-5 h-5 text-amber-500 animate-spin" />
@@ -2042,7 +2634,7 @@ export default function OperatorPanel({
 
       {/* 6. NEW VEHICLE MODAL */}
       {showVehicleModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 select-none">
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <form onSubmit={handleCreateVehicle} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-4">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">Cadastrar Veículo na Frota</h3>
 
@@ -2092,6 +2684,262 @@ export default function OperatorPanel({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* 7. DELETE CLIENT MODAL WITH INTEGRITY CHECK */}
+      {showDeleteClientModal && selectedClientToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center gap-2.5 text-red-500 border-b border-slate-800 pb-3">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="text-base font-bold text-white">Excluir Cliente</h3>
+            </div>
+
+            {clientDeleteError ? (
+              <div className="p-4 bg-red-950/70 border border-red-800/80 rounded-xl space-y-3">
+                <p className="font-bold text-red-400 text-xs">⚠️ Bloqueio de Exclusão por Integridade de Dados</p>
+                <p className="text-xs text-slate-300">{clientDeleteError}</p>
+                {clientDeleteActiveNFs.length > 0 && (
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Entregas em Andamento:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {clientDeleteActiveNFs.map(nf => (
+                        <span key={nf} className="px-2 py-0.5 bg-slate-900 border border-red-900/50 text-red-300 font-mono text-[10px] rounded font-bold">
+                          NF {nf}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs text-slate-300">
+                <p>Tem certeza que deseja excluir permanentemente o cliente <span className="font-bold text-white">{selectedClientToDelete.nome}</span>?</p>
+                <p className="text-slate-400 text-[11px]">Esta operação será auditada e gravada no sistema central.</p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setShowDeleteClientModal(false);
+                  setSelectedClientToDelete(null);
+                  setClientDeleteError(null);
+                }}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-700"
+              >
+                {clientDeleteError ? 'Entendido / Voltar' : 'Cancelar'}
+              </button>
+              {!clientDeleteError && (
+                <button
+                  disabled={isDeletingClient}
+                  onClick={handleExecuteDeleteClient}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-red-600/30"
+                >
+                  {isDeletingClient ? 'Excluindo...' : 'Confirmar Exclusão'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. ADD NEW CLIENT MODAL */}
+      {showAddClientModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <form onSubmit={handleCreateClient} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-1.5">
+                <Users className="w-5 h-5 text-amber-500" />
+                Cadastrar Novo Cliente
+              </h3>
+              <button type="button" onClick={() => setShowAddClientModal(false)} className="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Fechar</button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="md:col-span-2">
+                <label className="block text-slate-400 mb-1 font-semibold">Nome do Cliente / Razão Social *</label>
+                <input
+                  type="text" required value={cNome} onChange={(e) => setCNome(e.target.value)}
+                  placeholder="Ex: Comercial Silva Ltda"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">Telefone *</label>
+                <input
+                  type="text" required value={cTelefone} onChange={(e) => setCTelefone(e.target.value)}
+                  placeholder="(11) 99999-0000"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">WhatsApp</label>
+                <input
+                  type="text" value={cWhatsapp} onChange={(e) => setCWhatsapp(e.target.value)}
+                  placeholder="(11) 99999-0000"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">CPF / CNPJ</label>
+                <input
+                  type="text" value={cDocumento} onChange={(e) => setCDocumento(e.target.value)}
+                  placeholder="00.000.000/0001-00"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">E-mail</label>
+                <input
+                  type="email" value={cEmail} onChange={(e) => setCEmail(e.target.value)}
+                  placeholder="contato@cliente.com"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-slate-400 mb-1">Endereço (Rua e Nº)</label>
+                <input
+                  type="text" value={cEndereco} onChange={(e) => setCEndereco(e.target.value)}
+                  placeholder="Av. Paulista, 1000"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Bairro</label>
+                <input
+                  type="text" value={cBairro} onChange={(e) => setCBairro(e.target.value)}
+                  placeholder="Bela Vista"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">CEP</label>
+                <input
+                  type="text" value={cCEP} onChange={(e) => setCCEP(e.target.value)}
+                  placeholder="01310-100"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 text-xs pt-3 border-t border-slate-800">
+              <button
+                type="button" onClick={() => setShowAddClientModal(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 rounded-lg font-bold"
+              >
+                Cadastrar Cliente
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* DELETE DELIVERY CONFIRMATION MODAL */}
+      {showDeleteDeliveryModal && deliveryToDelete && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl text-xs">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                <Trash className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-sm">Confirmar Exclusão de Entrega</h3>
+                <p className="text-slate-400 text-[11px] mt-0.5">Esta ação removerá a entrega do banco de dados e de todos os painéis em tempo real.</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950/60 border border-slate-800 p-3 rounded-xl space-y-1">
+              <div className="flex justify-between font-mono text-[11px]">
+                <span className="text-slate-400">Nota Fiscal:</span>
+                <span className="font-bold text-white">{deliveryToDelete.numeroNF}</span>
+              </div>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-slate-400">Cliente:</span>
+                <span className="font-bold text-slate-200">{deliveryToDelete.cliente.nome}</span>
+              </div>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-slate-400">Status Atual:</span>
+                <span className="font-bold uppercase text-amber-400">{deliveryToDelete.status}</span>
+              </div>
+            </div>
+
+            {/* Proof / Files check */}
+            {(deliveryToDelete.comprovante?.assinaturaUrl || deliveryToDelete.comprovante?.fotoProdutoUrl || deliveryToDelete.comprovante?.fotoFachadaUrl) && (
+              <div className="space-y-2 bg-amber-950/30 border border-amber-900/40 p-3 rounded-xl">
+                <label className="font-bold text-amber-300 block text-[11px]">
+                  ⚠️ Esta entrega possui comprovantes e arquivos anexados:
+                </label>
+                <div className="space-y-2 pt-1">
+                  <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deleteFilesOpt"
+                      checked={deleteFilesOption === 'only_delivery'}
+                      onChange={() => setDeleteFilesOption('only_delivery')}
+                      className="text-amber-500 focus:ring-0 cursor-pointer"
+                    />
+                    <span>Excluir somente a entrega</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deleteFilesOpt"
+                      checked={deleteFilesOption === 'delivery_and_files'}
+                      onChange={() => setDeleteFilesOption('delivery_and_files')}
+                      className="text-amber-500 focus:ring-0 cursor-pointer"
+                    />
+                    <span className="text-red-300 font-semibold">Excluir entrega e todos os arquivos relacionados</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-slate-400 font-semibold mb-1">Motivo da exclusão (opcional)</label>
+              <textarea
+                value={deleteDeliveryMotivo}
+                onChange={(e) => setDeleteDeliveryMotivo(e.target.value)}
+                placeholder="Digite o motivo para registro no Log de Auditoria..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500"
+                rows={2}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowDeleteDeliveryModal(false)}
+                disabled={isDeletingDelivery}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteDelivery}
+                disabled={isDeletingDelivery}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-red-600/20"
+              >
+                {isDeletingDelivery ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash className="w-4 h-4" />}
+                Confirmar Exclusão
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

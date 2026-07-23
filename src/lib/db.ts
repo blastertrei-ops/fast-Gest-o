@@ -7,10 +7,11 @@ import {
   query, 
   where, 
   onSnapshot, 
-  updateDoc 
+  updateDoc,
+  deleteDoc
 } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
-import { Empresa, Usuario, Motorista, Veiculo, Entrega, EntregaStatus, HistoricoStatus, UserRole } from '../types';
+import { Empresa, Usuario, Motorista, Veiculo, Entrega, EntregaStatus, HistoricoStatus, UserRole, Cliente, RegistroAuditoria, StorageMetrics } from '../types';
 
 // Simple hashing function for fallback password validation
 export function hashPassword(password: string): string {
@@ -38,6 +39,8 @@ const inMemoryCache = {
   deliveries: {} as Record<string, Entrega[]>, // key: companyId
   drivers: {} as Record<string, Motorista[]>,    // key: companyId
   vehicles: {} as Record<string, Veiculo[]>,   // key: companyId
+  clients: {} as Record<string, Cliente[]>,     // key: companyId
+  auditLogs: {} as Record<string, RegistroAuditoria[]>, // key: companyId
   activeSession: null as Usuario | null,
   listenersInitialized: false,
   subscribers: new Set<() => void>()
@@ -100,6 +103,30 @@ function setupRealtimeListeners() {
       deliveriesByCompany[del.companyId].push(del);
     });
     inMemoryCache.deliveries = deliveriesByCompany;
+    notifySubscribers();
+  });
+
+  // Real-time Clients
+  onSnapshot(collection(firestoreDb, 'clientes'), (snapshot) => {
+    const clientsByCompany: Record<string, Cliente[]> = {};
+    snapshot.docs.forEach(doc => {
+      const cli = doc.data() as Cliente;
+      if (!clientsByCompany[cli.companyId]) clientsByCompany[cli.companyId] = [];
+      clientsByCompany[cli.companyId].push(cli);
+    });
+    inMemoryCache.clients = clientsByCompany;
+    notifySubscribers();
+  });
+
+  // Real-time Audit Logs
+  onSnapshot(collection(firestoreDb, 'auditoria'), (snapshot) => {
+    const auditByCompany: Record<string, RegistroAuditoria[]> = {};
+    snapshot.docs.forEach(doc => {
+      const aud = doc.data() as RegistroAuditoria;
+      if (!auditByCompany[aud.companyId]) auditByCompany[aud.companyId] = [];
+      auditByCompany[aud.companyId].push(aud);
+    });
+    inMemoryCache.auditLogs = auditByCompany;
     notifySubscribers();
   });
 }
@@ -355,6 +382,33 @@ export const Database = {
     inMemoryCache.deliveries[companyId] = existing;
     notifySubscribers();
 
+    // Auto register or update client record in clientes list
+    if (delivery.cliente && delivery.cliente.nome) {
+      const currentClients = inMemoryCache.clients[companyId] || [];
+      const existingClient = currentClients.find(c => 
+        c.nome.trim().toLowerCase() === delivery.cliente.nome.trim().toLowerCase() ||
+        (delivery.cliente.documento && c.documento === delivery.cliente.documento)
+      );
+
+      if (!existingClient) {
+        const newClient: Cliente = {
+          id: 'cli_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+          companyId,
+          nome: delivery.cliente.nome,
+          telefone: delivery.cliente.telefone || '',
+          whatsapp: delivery.cliente.whatsapp,
+          documento: delivery.cliente.documento,
+          endereco: delivery.endereco ? `${delivery.endereco.ruaNumero}, ${delivery.endereco.numero}` : '',
+          bairro: delivery.endereco?.bairro || '',
+          cidade: delivery.endereco?.cidade || '',
+          cep: delivery.endereco?.cep || '',
+          ativo: true,
+          criadoEm: new Date().toISOString()
+        };
+        this.saveClient(companyId, newClient).catch(err => console.warn('Auto client save warning:', err));
+      }
+    }
+
     // Direct Firestore write as primary client storage
     await setDoc(doc(firestoreDb, 'deliveries', delivery.id), { ...delivery, companyId });
 
@@ -558,5 +612,193 @@ export const Database = {
       console.error('Error updating delivery:', err);
       return false;
     }
+  },
+
+  async deleteDelivery(companyId: string, deliveryId: string, options?: { deleteFiles?: boolean; motivo?: string; usuarioNome?: string; usuarioId?: string }): Promise<{ success: boolean; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      // 1. Delete directly from Firestore so real-time listeners trigger across all client instances
+      await deleteDoc(doc(firestoreDb, 'deliveries', deliveryId)).catch(() => {});
+
+      // 2. Update local cache immediately
+      if (inMemoryCache.deliveries[companyId]) {
+        inMemoryCache.deliveries[companyId] = inMemoryCache.deliveries[companyId].filter(d => d.id !== deliveryId);
+        notifySubscribers();
+      }
+
+      // 3. Request API deletion for server validation and Audit Log creation
+      fetch(`/api/deliveries/${companyId}/${deliveryId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(options || {})
+      }).catch(err => console.warn('Error calling API deleteDelivery:', err));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error deleting delivery:', err);
+      return { success: false, error: err?.message || 'Erro ao excluir entrega.' };
+    }
+  },
+
+  // CLIENTS MANAGEMENT
+  getClients(companyId: string): Cliente[] {
+    return inMemoryCache.clients[companyId] || [];
+  },
+
+  async saveClient(companyId: string, clientData: Partial<Cliente> & { nome: string; telefone: string }): Promise<Cliente> {
+    const clientId = clientData.id || ('cli_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
+    const fullClient: Cliente = {
+      id: clientId,
+      companyId,
+      nome: clientData.nome,
+      telefone: clientData.telefone || '',
+      whatsapp: clientData.whatsapp,
+      documento: clientData.documento,
+      email: clientData.email,
+      endereco: clientData.endereco,
+      bairro: clientData.bairro,
+      cidade: clientData.cidade,
+      cep: clientData.cep,
+      ativo: clientData.ativo !== undefined ? clientData.ativo : true,
+      criadoEm: clientData.criadoEm || new Date().toISOString()
+    };
+
+    await setDoc(doc(firestoreDb, 'clientes', clientId), fullClient, { merge: true });
+
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    fetch(`/api/clients/${companyId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : ''
+      },
+      body: JSON.stringify(fullClient)
+    }).catch(err => console.warn('Error saving client via API:', err));
+
+    return fullClient;
+  },
+
+  async deleteClient(companyId: string, clientId: string): Promise<{ success: boolean; error?: string; message?: string; activeDeliveries?: string[] }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const response = await fetch(`/api/clients/${companyId}/${clientId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'Erro ao excluir cliente.' };
+      }
+
+      await deleteDoc(doc(firestoreDb, 'clientes', clientId)).catch(() => {});
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      console.error('Error deleting client:', err);
+      return { success: false, error: err.message || 'Erro de comunicação com o servidor para exclusão.' };
+    }
+  },
+
+  // AUDIT TRAIL LOGS
+  getAuditLogs(companyId: string): RegistroAuditoria[] {
+    return inMemoryCache.auditLogs[companyId] || [];
+  },
+
+  // BULK CLIENT CLEANUP FOR ADMINS
+  async bulkCleanupClients(companyId: string, startDate: string, endDate: string, mode: 'only_without_deliveries' | 'all_with_history'): Promise<{ success: boolean; clientsRemovedCount?: number; deliveriesRemovedCount?: number; freedFormatted?: string; error?: string; message?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const response = await fetch(`/api/admin/bulk-cleanup-clients/${companyId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({ startDate, endDate, mode })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'Erro na limpeza em massa do banco.' };
+      }
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro na requisição de limpeza em massa.' };
+    }
+  },
+
+  // STORAGE MONITOR METRICS
+  async getStorageMetrics(companyId: string): Promise<StorageMetrics> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const response = await fetch(`/api/storage-metrics/${companyId}`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data;
+      }
+    } catch (e) {
+      console.warn('Fallback calculating storage metrics on client:', e);
+    }
+
+    const clients = inMemoryCache.clients[companyId] || [];
+    const deliveries = inMemoryCache.deliveries[companyId] || [];
+    const drivers = inMemoryCache.drivers[companyId] || [];
+    const auditLogs = inMemoryCache.auditLogs[companyId] || [];
+
+    const totalClientes = clients.length;
+    const totalClientesAtivos = clients.filter(c => c.ativo !== false).length;
+    let totalClientesExcluidos = 0;
+    auditLogs.filter(a => a.tipoAcao === 'exclusao_cliente' || a.tipoAcao === 'exclusao_massa_clientes').forEach(a => {
+      if (a.tipoAcao === 'exclusao_cliente') totalClientesExcluidos++;
+      else if (a.detalhes?.qtdClientesRemovidos) totalClientesExcluidos += a.detalhes.qtdClientesRemovidos;
+    });
+
+    const totalEntregas = deliveries.length;
+    let totalComprovantes = 0;
+    let totalFotos = 0;
+    let totalDocumentos = 0;
+
+    deliveries.forEach(d => {
+      if (d.numeroNF) totalDocumentos++;
+      if (d.comprovante) {
+        totalComprovantes++;
+        if (d.comprovante.assinaturaUrl) totalFotos++;
+        if (d.comprovante.fotoProdutoUrl) totalFotos++;
+        if (d.comprovante.fotoFachadaUrl) totalFotos++;
+      }
+    });
+
+    drivers.forEach(drv => {
+      if (drv.fotoPerfilUrl) totalFotos++;
+      if (drv.cnh) totalDocumentos++;
+    });
+
+    let totalBytes = 0;
+    clients.forEach(c => totalBytes += JSON.stringify(c).length);
+    deliveries.forEach(d => totalBytes += JSON.stringify(d).length);
+    drivers.forEach(drv => totalBytes += JSON.stringify(drv).length);
+
+    const totalMB = totalBytes / (1024 * 1024);
+    const espacoUtilizadoFormatted = totalMB < 1 ? `${(totalBytes / 1024).toFixed(1)} KB` : `${totalMB.toFixed(2)} MB`;
+
+    return {
+      totalClientes,
+      totalClientesAtivos,
+      totalClientesExcluidos,
+      totalEntregas,
+      totalComprovantes,
+      totalFotos,
+      totalDocumentos,
+      espacoUtilizadoBytes: totalBytes,
+      espacoUtilizadoFormatted,
+      percentualUso: Math.min(100, Math.max(1, Math.round((totalBytes / (50 * 1024 * 1024)) * 100)))
+    };
   }
 };

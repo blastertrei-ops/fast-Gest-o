@@ -34,7 +34,8 @@ export default function DriverPanel({
   const [currentScreen, setCurrentScreen] = useState<'list' | 'detail' | 'confirm' | 'fail'>('list');
   const [selectedDelivery, setSelectedDelivery] = useState<Entrega | null>(null);
 
-  // Delivery confirmation inputs (Signature & Photo)
+  // Delivery confirmation inputs (Signature, Photo & Recebedor)
+  const [recebedorNome, setRecebedorNome] = useState<string>('');
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [isCapturingGPS, setIsCapturingGPS] = useState(false);
@@ -119,8 +120,8 @@ export default function DriverPanel({
     });
   }, [deliveries, currentUser, currentDriver]);
 
-  const formatCurrency = (val: number) => {
-    return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const formatCurrency = (val?: number | null) => {
+    return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
   const handleSelectDelivery = (delivery: Entrega) => {
@@ -171,6 +172,7 @@ export default function DriverPanel({
     setSignatureDataUrl(null);
     setPhotoDataUrl(null);
     setGpsCoordinates(null);
+    setRecebedorNome(selectedDelivery?.cliente.nome || '');
     setCurrentScreen('confirm');
     
     // Capture GPS Geolocation
@@ -207,9 +209,13 @@ export default function DriverPanel({
     }
   };
 
-  // 4. ACTION: CONFIRM DELIVERED WITH SIGNATURE, PHOTO & GPS
+  // 4. ACTION: CONFIRM DELIVERED WITH RECEBEDOR, SIGNATURE, PHOTO & GPS
   const handleConfirmDelivered = () => {
     if (!selectedDelivery || !currentDriver) return;
+    if (!recebedorNome.trim()) {
+      alert('Por favor informe o nome de quem recebeu a mercadoria!');
+      return;
+    }
     if (!signatureDataUrl) {
       alert('Por favor solicite a assinatura do cliente!');
       return;
@@ -224,6 +230,7 @@ export default function DriverPanel({
       dataHoraEntrega: new Date().toISOString(),
       latitudeEntrega: finalLat,
       longitudeEntrega: finalLng,
+      recebedorNome: recebedorNome.trim(),
       entregadorNome: currentDriver.nome
     };
 
@@ -681,6 +688,21 @@ export default function DriverPanel({
               <span className="text-[10px] bg-slate-900 px-2 py-0.5 rounded-md text-slate-500 font-bold font-mono">AUTOMÁTICO</span>
             </div>
 
+            {/* Receiver Name (Mandatory) */}
+            <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl flex flex-col gap-2">
+              <label className="text-xs font-bold text-slate-200 flex items-center justify-between">
+                <span>Nome de quem recebeu a mercadoria <span className="text-red-400">*</span></span>
+              </label>
+              <input
+                type="text"
+                value={recebedorNome}
+                onChange={(e) => setRecebedorNome(e.target.value)}
+                placeholder="Digite o nome de quem recebeu..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
+                required
+              />
+            </div>
+
             {/* Signature Pad */}
             <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl">
               <SignaturePad 
@@ -705,7 +727,7 @@ export default function DriverPanel({
           <div className="bg-slate-950 p-4 border-t border-slate-800 sticky bottom-0 mt-auto">
             <button
               onClick={handleConfirmDelivered}
-              disabled={!signatureDataUrl}
+              disabled={!signatureDataUrl || !recebedorNome.trim()}
               className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:pointer-events-none text-white font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
               id="btn-confirm-delivery-submit"
             >
