@@ -7,16 +7,26 @@ import React, { useState, useMemo } from 'react';
 import { 
   Plus, Search, Filter, Calendar, Users, Truck, DollarSign, Package, 
   MapPin, CheckCircle2, AlertTriangle, Clock, XCircle, FileText, Phone, 
-  FileCheck, Shield, ChevronRight, UserPlus, Trash, Printer, FileDown, Eye, Check, RefreshCw, Loader2
+  FileCheck, Shield, ChevronRight, UserPlus, Trash, Trash2, Printer, FileDown, Eye, Check, RefreshCw, Loader2,
+  Edit3, Unlock, Lock, Key, Sliders, History, QrCode, Navigation, Palette, Building, LogOut
 } from 'lucide-react';
 import { 
   Entrega, Motorista, Veiculo, Usuario, Empresa, EntregaStatus, 
   FormaPagamento, StatusPagamento, EnderecoInfo, ClienteInfo, HistoricoStatus,
-  Cliente, RegistroAuditoria 
+  Cliente, RegistroAuditoria, UserRole, DeliveryFormConfig, CustomFieldType
 } from '../types';
 import { Database } from '../lib/db';
 import QrCodeGenerator from './QrCodeGenerator';
 import ReportPanel from './ReportPanel';
+import DeliveryHistoryPanel from './DeliveryHistoryPanel';
+import DeliveryFormConfigPanel, { DEFAULT_DELIVERY_FORM_CONFIG } from './DeliveryFormConfigPanel';
+import DeliveryForm, { DeliveryFormValues } from './DeliveryForm';
+import QrScannerModal from './QrScannerModal';
+import CepInput from './CepInput';
+import GpsTrackingPanel from './GpsTrackingPanel';
+import ThemeConfigModal from './ThemeConfigModal';
+import Sidebar from './Sidebar';
+import FastGestaoLogo from './FastGestaoLogo';
 
 interface OperatorPanelProps {
   currentUser: Usuario;
@@ -27,6 +37,7 @@ interface OperatorPanelProps {
   users: Usuario[];
   clients?: Cliente[];
   auditLogs?: RegistroAuditoria[];
+  onUpdateCompany?: (updated: Empresa) => void;
   onAddDelivery: (delivery: Omit<Entrega, 'id' | 'companyId' | 'criadoPor' | 'criadoEm' | 'atualizadoEm' | 'origem' | 'historico'>) => Promise<void> | void;
   onUpdateDelivery: (id: string, updates: Partial<Entrega>) => void;
   onDeleteDelivery: (id: string, options?: { deleteFiles?: boolean; motivo?: string }) => void | Promise<void>;
@@ -38,6 +49,7 @@ interface OperatorPanelProps {
   onDeleteVehicle: (id: string) => void;
   onAddUser: (nome: string, email: string, role: 'operador' | 'motorista', motoristaId?: string) => void;
   onUpdateUserStatus: (userId: string, ativo: boolean) => void;
+  onDeleteUser?: (userId: string) => void;
   onLogout: () => void;
 }
 
@@ -50,6 +62,7 @@ export default function OperatorPanel({
   users,
   clients = [],
   auditLogs = [],
+  onUpdateCompany,
   onAddDelivery,
   onUpdateDelivery,
   onDeleteDelivery,
@@ -60,10 +73,14 @@ export default function OperatorPanel({
   onUpdateVehicle,
   onDeleteVehicle,
   onAddUser,
-  onUpdateUserStatus
+  onUpdateUserStatus,
+  onDeleteUser,
+  onLogout
 }: OperatorPanelProps) {
   // Navigation / Tab States
-  const [activeTab, setActiveTab] = useState<'entregas' | 'clientes' | 'motoristas' | 'veiculos' | 'colaboradores' | 'relatorios'>('entregas');
+  const [activeTab, setActiveTab] = useState<'entregas' | 'historico' | 'colaboradores' | 'formConfig' | 'relatorios' | 'clientes' | 'motoristas' | 'veiculos' | 'rastreamentoGps' | 'configuracoes'>('entregas');
+  const [showThemeModal, setShowThemeModal] = useState(false);
+  const [gpsTargetDeliveryId, setGpsTargetDeliveryId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('todas');
   const [driverFilter, setDriverFilter] = useState<string>('todos');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -86,55 +103,24 @@ export default function OperatorPanel({
   // Edit Delivery Form States
   const [showEditDeliveryModal, setShowEditDeliveryModal] = useState(false);
   const [editingDeliveryId, setEditingDeliveryId] = useState<string | null>(null);
-  const [editNF, setEditNF] = useState('');
-  const [editPedido, setEditPedido] = useState('');
-  const [editClientName, setEditClientName] = useState('');
-  const [editClientPhone, setEditClientPhone] = useState('');
-  const [editClientWhatsapp, setEditClientWhatsapp] = useState('');
-  const [editClientDoc, setEditClientDoc] = useState('');
-  const [editRua, setEditRua] = useState('');
-  const [editNumero, setEditNumero] = useState('');
-  const [editBairro, setEditBairro] = useState('');
-  const [editCidade, setEditCidade] = useState('');
-  const [editComplemento, setEditComplemento] = useState('');
-  const [editCEP, setEditCEP] = useState('');
-  const [editVolumes, setEditVolumes] = useState(1);
-  const [editValor, setEditValor] = useState('');
-  const [editFrete, setEditFrete] = useState('');
-  const [editFormaPagamento, setEditFormaPagamento] = useState<FormaPagamento>('ja_pago');
-  const [editStatusPagamento, setEditStatusPagamento] = useState<StatusPagamento>('pago');
-  const [editMotoristaId, setEditMotoristaId] = useState('');
-  const [editPrioridade, setEditPrioridade] = useState<'alta' | 'media' | 'baixa'>('media');
-  const [editHora, setEditHora] = useState('');
-  const [editDateEntrega, setEditDateEntrega] = useState('');
-  const [editIsAgendada, setEditIsAgendada] = useState(false);
-  const [editObs, setEditObs] = useState('');
+  const [editingDelivery, setEditingDelivery] = useState<Entrega | null>(null);
 
-  // New Delivery Form States
-  const [newNF, setNewNF] = useState('');
-  const [newPedido, setNewPedido] = useState('');
-  const [newClientName, setNewClientName] = useState('');
-  const [newClientPhone, setNewClientPhone] = useState('');
-  const [newClientWhatsapp, setNewClientWhatsapp] = useState('');
-  const [newClientDoc, setNewClientDoc] = useState('');
-  const [newRua, setNewRua] = useState('');
-  const [newNumero, setNewNumero] = useState('');
-  const [newBairro, setNewBairro] = useState('');
-  const [newCidade, setNewCidade] = useState('');
-  const [newEstado, setNewEstado] = useState('SP');
-  const [newCEP, setNewCEP] = useState('');
-  const [newComplemento, setNewComplemento] = useState('');
-  const [newVolumes, setNewVolumes] = useState(1);
-  const [newValor, setNewValor] = useState('');
-  const [newFrete, setNewFrete] = useState('');
-  const [newFormaPagamento, setNewFormaPagamento] = useState<FormaPagamento>('ja_pago');
-  const [newStatusPagamento, setNewStatusPagamento] = useState<StatusPagamento>('pago');
-  const [newMotoristaId, setNewMotoristaId] = useState('');
-  const [newObs, setNewObs] = useState('');
-  const [newPrioridade, setNewPrioridade] = useState<'alta' | 'media' | 'baixa'>('media');
-  const [newHora, setNewHora] = useState('');
-  const [newDateEntrega, setNewDateEntrega] = useState(() => new Date().toISOString().split('T')[0]);
-  const [newIsAgendada, setNewIsAgendada] = useState(false);
+  // Selection & Batch Action State for OperatorPanel Colaboradores
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [userToEdit, setUserToEdit] = useState<Usuario | null>(null);
+  const [editUserForm, setEditUserForm] = useState({
+    nome: '',
+    email: '',
+    role: 'operador' as UserRole,
+    ativo: true
+  });
+  const [showChangeRoleModal, setShowChangeRoleModal] = useState(false);
+  const [batchRoleValue, setBatchRoleValue] = useState<UserRole>('operador');
+  const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
+  const [showBatchPasswordModal, setShowBatchPasswordModal] = useState(false);
+  const [batchPasswordValue, setBatchPasswordValue] = useState('');
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Client Management States
   const [clientSearchQuery, setClientSearchQuery] = useState('');
@@ -344,92 +330,51 @@ export default function OperatorPanel({
     };
   }, [deliveries, dateFilter]);
 
-  // Handle Create Delivery
-  const handleCreateDelivery = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Unified Delivery Form Handlers
+  const handleDeliveryFormSubmit = async (values: DeliveryFormValues) => {
     if (isSubmittingDelivery) return;
-
-    if (!newNF || !newClientName || !newRua || !newCEP || !newValor) {
-      alert('Por favor preencha os campos obrigatórios (*).');
-      return;
-    }
-
     setIsSubmittingDelivery(true);
 
     try {
-      // Auto calculate mock locations near SP
       const baseLat = -23.5505;
       const baseLng = -46.6333;
       const randomLat = baseLat + (Math.random() - 0.5) * 0.08;
       const randomLng = baseLng + (Math.random() - 0.5) * 0.08;
 
-      const selectedDriverObj = newMotoristaId ? availableDrivers.find(drv => drv.id === newMotoristaId) : undefined;
-      const matchingUser = newMotoristaId 
-        ? users.find(u => u.motoristaId === newMotoristaId || u.id === newMotoristaId || (selectedDriverObj?.email && u.email?.toLowerCase() === selectedDriverObj.email.toLowerCase())) 
+      const selectedDriverObj = values.motoristaId ? availableDrivers.find(drv => drv.id === values.motoristaId) : undefined;
+      const matchingUser = values.motoristaId 
+        ? users.find(u => u.motoristaId === values.motoristaId || u.id === values.motoristaId || (selectedDriverObj?.email && u.email?.toLowerCase() === selectedDriverObj.email.toLowerCase())) 
         : undefined;
 
       await onAddDelivery({
-        numeroNF: newNF,
-        numeroPedido: newPedido || undefined,
-        cliente: {
-          nome: newClientName,
-          telefone: newClientPhone,
-          whatsapp: newClientWhatsapp || undefined,
-          documento: newClientDoc || undefined
-        },
+        numeroNF: values.numeroNF,
+        numeroPedido: values.numeroPedido,
+        cliente: values.cliente,
         endereco: {
-          ruaNumero: newRua,
-          numero: newNumero,
-          bairro: newBairro,
-          cidade: newCidade || 'São Paulo',
-          cep: newCEP,
-          complemento: newComplemento || undefined,
+          ...values.endereco,
           latitude: randomLat,
-          longitude: randomLng
+          longitude: randomLng,
         },
-        volumes: Number(newVolumes),
-        valorVenda: parseFloat(newValor.replace(',', '.')),
-        valorFrete: newFrete ? parseFloat(newFrete.replace(',', '.')) : undefined,
-        formaPagamento: newFormaPagamento,
-        statusPagamento: newStatusPagamento,
-        status: newMotoristaId ? 'aguardando_motorista' : 'venda_realizada',
-        motoristaId: newMotoristaId || undefined,
-        entregadorId: matchingUser?.id || undefined,
-        entregadorNome: selectedDriverObj?.nome || matchingUser?.nome || undefined,
-        dataEntregaPrevista: newDateEntrega || dateFilter,
-        horaEntregaPrevista: newHora || undefined,
-        isAgendada: newIsAgendada || (newDateEntrega > new Date().toISOString().split('T')[0]),
-        observacoes: newObs || undefined,
-        prioridade: newPrioridade
+        volumes: values.volumes,
+        valorVenda: values.valorVenda,
+        valorFrete: values.valorFrete,
+        formaPagamento: values.formaPagamento,
+        statusPagamento: values.statusPagamento,
+        status: values.motoristaId ? 'aguardando_motorista' : 'venda_realizada',
+        motoristaId: values.motoristaId,
+        entregadorId: matchingUser?.id || selectedDriverObj?.id || values.motoristaId,
+        entregadorNome: selectedDriverObj?.nome || matchingUser?.nome,
+        dataEntregaPrevista: values.dataEntregaPrevista,
+        horaEntregaPrevista: values.horaEntregaPrevista,
+        isAgendada: values.isAgendada,
+        observacoes: values.observacoes,
+        prioridade: values.prioridade,
+        customValues: values.customValues,
       });
 
-      // Reset Form
-      setNewNF('');
-      setNewPedido('');
-      setNewClientName('');
-      setNewClientPhone('');
-      setNewClientWhatsapp('');
-      setNewClientDoc('');
-      setNewRua('');
-      setNewNumero('');
-      setNewBairro('');
-      setNewCidade('');
-      setNewCEP('');
-      setNewComplemento('');
-      setNewVolumes(1);
-      setNewValor('');
-      setNewFrete('');
-      setNewFormaPagamento('ja_pago');
-      setNewStatusPagamento('pago');
-      setNewMotoristaId('');
-      setNewObs('');
-      setNewPrioridade('media');
-      setNewHora('');
-      setNewDateEntrega(new Date().toISOString().split('T')[0]);
-      setNewIsAgendada(false);
-
-      // Close modal immediately
       setShowAddModal(false);
+      setFeedback({ type: 'success', message: 'Entrega cadastrada com sucesso!' });
+      setTimeout(() => setFeedback(null), 4000);
     } catch (err: any) {
       console.error('Erro ao cadastrar entrega:', err);
       alert(err?.message || 'Erro ao cadastrar entrega. Tente novamente.');
@@ -440,74 +385,39 @@ export default function OperatorPanel({
 
   const handleOpenEditDeliveryModal = (d: Entrega) => {
     setEditingDeliveryId(d.id);
-    setEditNF(d.numeroNF);
-    setEditPedido(d.numeroPedido || '');
-    setEditClientName(d.cliente.nome);
-    setEditClientPhone(d.cliente.telefone || '');
-    setEditClientWhatsapp(d.cliente.whatsapp || '');
-    setEditClientDoc(d.cliente.documento || '');
-    setEditRua(d.endereco.ruaNumero || '');
-    setEditNumero(d.endereco.numero || '');
-    setEditBairro(d.endereco.bairro || '');
-    setEditCidade(d.endereco.cidade || '');
-    setEditComplemento(d.endereco.complemento || '');
-    setEditCEP(d.endereco.cep || '');
-    setEditVolumes(d.volumes || 1);
-    setEditValor(d.valorVenda ? d.valorVenda.toString() : '');
-    setEditFrete(d.valorFrete ? d.valorFrete.toString() : '');
-    setEditFormaPagamento(d.formaPagamento);
-    setEditStatusPagamento(d.statusPagamento);
-    setEditMotoristaId(d.motoristaId || d.entregadorId || '');
-    setEditPrioridade(d.prioridade || 'media');
-    setEditHora(d.horaEntregaPrevista || '');
-    setEditDateEntrega(d.dataEntregaPrevista || new Date().toISOString().split('T')[0]);
-    setEditIsAgendada(d.isAgendada || false);
-    setEditObs(d.observacoes || '');
+    setEditingDelivery(d);
     setShowEditDeliveryModal(true);
   };
 
-  const handleSaveEditDelivery = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveEditDeliverySubmit = async (values: DeliveryFormValues) => {
     if (!editingDeliveryId) return;
 
-    const numericValor = parseFloat(editValor.toString().replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
-    const numericFrete = editFrete ? parseFloat(editFrete.toString().replace('R$', '').replace(/\./g, '').replace(',', '.')) || undefined : undefined;
-
-    const drvObj = editMotoristaId ? availableDrivers.find(drv => drv.id === editMotoristaId) : undefined;
-    const assocUser = editMotoristaId ? users.find(u => u.motoristaId === editMotoristaId || u.id === editMotoristaId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase())) : undefined;
+    const drvObj = values.motoristaId ? availableDrivers.find(drv => drv.id === values.motoristaId) : undefined;
+    const assocUser = values.motoristaId ? users.find(u => u.motoristaId === values.motoristaId || u.id === values.motoristaId || (drvObj?.email && u.email?.toLowerCase() === drvObj.email.toLowerCase())) : undefined;
 
     const updates: Partial<Entrega> = {
-      numeroNF: editNF,
-      numeroPedido: editPedido || undefined,
-      cliente: {
-        nome: editClientName,
-        telefone: editClientPhone,
-        whatsapp: editClientWhatsapp || undefined,
-        documento: editClientDoc || undefined,
-      },
+      numeroNF: values.numeroNF,
+      numeroPedido: values.numeroPedido,
+      cliente: values.cliente,
       endereco: {
-        ruaNumero: editRua,
-        numero: editNumero,
-        bairro: editBairro,
-        cidade: editCidade,
-        cep: editCEP,
-        complemento: editComplemento || undefined,
+        ...values.endereco,
         latitude: -23.55052,
         longitude: -46.633308,
       },
-      volumes: Number(editVolumes) || 1,
-      valorVenda: numericValor,
-      valorFrete: numericFrete,
-      formaPagamento: editFormaPagamento,
-      statusPagamento: editStatusPagamento,
-      motoristaId: editMotoristaId || undefined,
-      entregadorId: assocUser?.id || drvObj?.id || editMotoristaId || undefined,
+      volumes: values.volumes,
+      valorVenda: values.valorVenda,
+      valorFrete: values.valorFrete,
+      formaPagamento: values.formaPagamento,
+      statusPagamento: values.statusPagamento,
+      motoristaId: values.motoristaId || undefined,
+      entregadorId: assocUser?.id || drvObj?.id || values.motoristaId || undefined,
       entregadorNome: drvObj?.nome || assocUser?.nome || undefined,
-      prioridade: editPrioridade,
-      horaEntregaPrevista: editHora || undefined,
-      dataEntregaPrevista: editDateEntrega,
-      isAgendada: editIsAgendada,
-      observacoes: editObs || undefined,
+      prioridade: values.prioridade,
+      horaEntregaPrevista: values.horaEntregaPrevista,
+      dataEntregaPrevista: values.dataEntregaPrevista,
+      isAgendada: values.isAgendada,
+      observacoes: values.observacoes,
+      customValues: values.customValues,
     };
 
     onUpdateDelivery(editingDeliveryId, updates);
@@ -515,6 +425,9 @@ export default function OperatorPanel({
       setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
     }
     setShowEditDeliveryModal(false);
+    setEditingDelivery(null);
+    setFeedback({ type: 'success', message: 'Entrega atualizada com sucesso!' });
+    setTimeout(() => setFeedback(null), 4000);
   };
 
   // Handle Create Driver
@@ -833,7 +746,7 @@ export default function OperatorPanel({
         <body>
           <div class="border-box">
             <div class="header">
-              <div class="logo">FAST GESTÃO</div>
+              <img src="/fast-gestao-logo.png" alt="Fast Gestão Logo" style="height: 48px; margin: 0 auto 8px auto; display: block;" />
               <div class="title">Comprovante de Entrega Digital</div>
               <div style="font-size: 11px; color: #64748b;">Isolamento de Segurança: ${company.nome}</div>
             </div>
@@ -942,72 +855,60 @@ export default function OperatorPanel({
   };
 
   return (
-    <div className="h-full flex flex-col bg-slate-950 font-sans text-slate-100 overflow-hidden">
+    <div className="h-full flex bg-slate-950 font-sans text-slate-100 overflow-hidden">
       
-      {/* MODULE NAVIGATION TAB BAR */}
-      <div className="bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between shrink-0 overflow-x-auto select-none print:hidden">
-        <div className="flex gap-1 md:gap-2">
-          <button
-            onClick={() => setActiveTab('entregas')}
-            className={`px-4 py-3 text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative border-b-2 ${activeTab === 'entregas' ? 'border-amber-500 text-amber-500 bg-slate-800/40 font-extrabold' : 'border-transparent text-slate-400 hover:text-white'}`}
-          >
-            <Package className="w-4 h-4" />
-            Entregas
-          </button>
+      {/* SIDEBAR NAVIGATION (REQ 2 & 3) */}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        userRole={currentUser.role}
+        enabledModules={company.enabledModules || {}}
+      />
 
-          <button
-            onClick={() => setActiveTab('clientes')}
-            className={`px-4 py-3 text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative border-b-2 ${activeTab === 'clientes' ? 'border-amber-500 text-amber-500 bg-slate-800/40 font-extrabold' : 'border-transparent text-slate-400 hover:text-white'}`}
-          >
-            <Users className="w-4 h-4 text-amber-500" />
-            Clientes
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('motoristas')}
-            className={`px-4 py-3 text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative border-b-2 ${activeTab === 'motoristas' ? 'border-amber-500 text-amber-500 bg-slate-800/40 font-extrabold' : 'border-transparent text-slate-400 hover:text-white'}`}
-          >
-            <Users className="w-4 h-4" />
-            Entregadores
-          </button>
+      {/* MAIN CONTENT AREA */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        
+        {/* CLEAN UNIFIED HEADER (REQ 2, 3 & 8) */}
+        <header className="bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3 flex items-center justify-between shrink-0 select-none print:hidden shadow-md">
+          {/* NOME DA EMPRESA LOGADA */}
+          <div className="flex items-center gap-2.5">
+            <Building className="w-4 h-4 text-amber-500" />
+            <h1 className="text-sm md:text-base font-bold text-white tracking-tight truncate max-w-[200px] sm:max-w-none">
+              {company.nome}
+            </h1>
+          </div>
 
-          <button
-            onClick={() => setActiveTab('veiculos')}
-            className={`px-4 py-3 text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative border-b-2 ${activeTab === 'veiculos' ? 'border-amber-500 text-amber-500 bg-slate-800/40 font-extrabold' : 'border-transparent text-slate-400 hover:text-white'}`}
-          >
-            <Truck className="w-4 h-4" />
-            Veículos
-          </button>
+          {/* RIGHT CONTROLS: USUÁRIO LOGADO, ESCANEAR QR CODE, SAIR */}
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* USUÁRIO LOGADO */}
+            <div className="hidden sm:flex flex-col text-right">
+              <span className="text-xs font-bold text-white leading-tight">{currentUser.nome}</span>
+              <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">
+                {currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'master' ? 'Super Admin' : 'Operador'}
+              </span>
+            </div>
 
-          {currentUser.role === 'admin' && (
-            <>
-              <button
-                onClick={() => setActiveTab('colaboradores')}
-                className={`px-4 py-3 text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative border-b-2 ${activeTab === 'colaboradores' ? 'border-amber-500 text-amber-500 bg-slate-800/40 font-extrabold' : 'border-transparent text-slate-400 hover:text-white'}`}
-              >
-                <Shield className="w-4 h-4" />
-                Usuários
-              </button>
-              <button
-                onClick={() => setActiveTab('relatorios')}
-                className={`px-4 py-3 text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative border-b-2 ${activeTab === 'relatorios' ? 'border-amber-500 text-amber-500 bg-slate-800/40 font-extrabold' : 'border-transparent text-slate-400 hover:text-white'}`}
-              >
-                <FileText className="w-4 h-4" />
-                Relatórios
-              </button>
-            </>
-          )}
-        </div>
+            {/* BOTÃO ESCANEAR QR CODE */}
+            <button
+              onClick={() => setShowScannerModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 transition-all rounded-xl text-xs font-bold shadow-sm"
+              title="Escanear QR Code de Comprovante"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Escanear QR Code</span>
+            </button>
 
-        {/* Scan simulation button */}
-        <button
-          onClick={() => setShowScannerModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1 bg-slate-850 hover:bg-slate-800 text-amber-500 border border-slate-800 hover:border-amber-500/40 transition-all rounded-lg text-xs font-bold"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Escanear QR Code
-        </button>
-      </div>
+            {/* BOTÃO SAIR */}
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/30 hover:bg-red-900/40 text-red-400 border border-red-900/40 transition-all rounded-xl text-xs font-bold shadow-sm"
+              title="Sair do Sistema"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
+          </div>
+        </header>
 
       {/* CORE WORKSPACE PANEL */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
@@ -1273,8 +1174,19 @@ export default function OperatorPanel({
                       </div>
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleOpenEditDeliveryModal(selectedDelivery)}
+                          onClick={() => {
+                            setGpsTargetDeliveryId(selectedDelivery.id);
+                            setActiveTab('rastreamentoGps');
+                          }}
                           className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-amber-300 text-xs font-bold rounded-lg transition-colors"
+                          title="Abrir no GPS em tempo real"
+                        >
+                          <Navigation className="w-3.5 h-3.5 text-amber-400" />
+                          Ver no Mapa
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditDeliveryModal(selectedDelivery)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg transition-colors"
                         >
                           <FileText className="w-3.5 h-3.5" />
                           Editar
@@ -1322,7 +1234,7 @@ export default function OperatorPanel({
                           {selectedDelivery.endereco.ruaNumero}, Nº {selectedDelivery.endereco.numero}
                         </p>
                         <p className="text-slate-400 mt-0.5">
-                          {selectedDelivery.endereco.bairro} — {selectedDelivery.endereco.cidade} / {newEstado}
+                          {selectedDelivery.endereco.bairro} — {selectedDelivery.endereco.cidade}{selectedDelivery.endereco.estado ? ` / ${selectedDelivery.endereco.estado}` : ''}
                         </p>
                         <p className="font-mono text-slate-500 mt-1">CEP: {selectedDelivery.endereco.cep}</p>
                         {selectedDelivery.endereco.complemento && (
@@ -1873,58 +1785,270 @@ export default function OperatorPanel({
         )}
 
         {/* TAB 4: USUARIOS/COLABORADORES (ADMIN ONLY) */}
-        {activeTab === 'colaboradores' && currentUser.role === 'admin' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div>
-                <h2 className="text-base font-bold text-white">Usuários & Credenciais do Sistema</h2>
-                <p className="text-xs text-slate-400">Contas autorizadas para login na plataforma administrativa e de entregadores</p>
+        {activeTab === 'colaboradores' && currentUser.role === 'admin' && (() => {
+          const companyUsersList = users;
+          const isAllSelected = companyUsersList.length > 0 && companyUsersList.every(u => selectedUserIds.includes(u.id));
+
+          const handleSelectAll = (checked: boolean) => {
+            if (checked) {
+              const allIds = companyUsersList.map(u => u.id);
+              setSelectedUserIds(Array.from(new Set([...selectedUserIds, ...allIds])));
+            } else {
+              const companyUserIds = new Set(companyUsersList.map(u => u.id));
+              setSelectedUserIds(selectedUserIds.filter(id => !companyUserIds.has(id)));
+            }
+          };
+
+          const handleToggleUserSelect = (userId: string) => {
+            setSelectedUserIds(prev =>
+              prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+            );
+          };
+
+          return (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-white">Usuários & Credenciais do Sistema</h2>
+                  <p className="text-xs text-slate-400">Contas autorizadas para login na plataforma da empresa</p>
+                </div>
+
+                <button
+                  onClick={() => setShowUserModal(true)}
+                  className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 transition-colors font-bold text-xs rounded-xl shadow-md shrink-0"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Criar Acesso
+                </button>
               </div>
 
-              <button
-                onClick={() => setShowUserModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-slate-950 hover:bg-amber-400 transition-colors font-bold text-xs rounded-lg shadow-sm"
-              >
-                <UserPlus className="w-4 h-4" />
-                Criar Acesso
-              </button>
-            </div>
+              {/* ACTION BAR FOR SELECTED USERS */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 hover:border-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={(e) => handleSelectAll(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900 cursor-pointer"
+                    />
+                    <span>Selecionar Todos</span>
+                  </label>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-              <table className="w-full text-xs text-slate-300 border-collapse">
-                <thead>
-                  <tr className="bg-slate-950/50 border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
-                    <th className="p-3 text-left">Nome</th>
-                    <th className="p-3 text-left">E-mail</th>
-                    <th className="p-3 text-left">Perfil</th>
-                    <th className="p-3 text-left">Status</th>
-                    <th className="p-3 text-center">Último Acesso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map(u => (
-                    <tr key={u.id} className="border-b border-slate-800/60 last:border-0 hover:bg-slate-800/20">
-                      <td className="p-3 font-bold text-white">{u.nome}</td>
-                      <td className="p-3 font-mono">{u.email}</td>
-                      <td className="p-3 font-bold uppercase text-amber-500">{u.role}</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.ativo ? 'bg-emerald-950 border border-emerald-800 text-emerald-400' : 'bg-red-950 border border-red-900 text-red-400'}`}>
-                          {u.ativo ? 'ATIVO' : 'SUSPENSO'}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center text-slate-500 font-mono">
-                        {u.ultimoLogin ? formatDateTime(u.ultimoLogin) : 'Nenhum'}
-                      </td>
+                  <div className="text-xs font-bold text-amber-400 bg-amber-950/40 border border-amber-900/40 px-3 py-1.5 rounded-xl">
+                    {selectedUserIds.length} {selectedUserIds.length === 1 ? 'usuário selecionado' : 'usuários selecionados'}
+                  </div>
+
+                  {selectedUserIds.length > 0 && (
+                    <button
+                      onClick={() => setSelectedUserIds([])}
+                      className="text-[11px] text-slate-400 hover:text-white underline font-semibold"
+                    >
+                      Desmarcar todos
+                    </button>
+                  )}
+                </div>
+
+                {/* ACTION BUTTONS */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    disabled={selectedUserIds.length !== 1}
+                    onClick={() => {
+                      if (selectedUserIds.length !== 1) return;
+                      const u = users.find(x => x.id === selectedUserIds[0]);
+                      if (u) {
+                        setUserToEdit(u);
+                        setEditUserForm({
+                          nome: u.nome,
+                          email: u.email,
+                          role: u.role,
+                          ativo: u.ativo
+                        });
+                        setShowEditUserModal(true);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
+                      selectedUserIds.length === 1
+                        ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 border-amber-400 shadow-sm'
+                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                    }`}
+                    title={selectedUserIds.length > 1 ? 'Selecione apenas um usuário para editar.' : 'Editar Usuário'}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Editar
+                  </button>
+
+                  <button
+                    disabled={selectedUserIds.length === 0}
+                    onClick={async () => {
+                      if (selectedUserIds.length === 0) return;
+                      await Database.updateUsersStatusBatch(selectedUserIds, true);
+                      setFeedback({ type: 'success', message: `${selectedUserIds.length} usuário(s) ativado(s) com sucesso.` });
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
+                      selectedUserIds.length > 0
+                        ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800 hover:bg-emerald-900/60'
+                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                    }`}
+                  >
+                    <Unlock className="w-3.5 h-3.5" />
+                    Ativar
+                  </button>
+
+                  <button
+                    disabled={selectedUserIds.length === 0}
+                    onClick={async () => {
+                      if (selectedUserIds.length === 0) return;
+                      await Database.updateUsersStatusBatch(selectedUserIds, false);
+                      setFeedback({ type: 'success', message: `${selectedUserIds.length} usuário(s) bloqueado(s) com sucesso.` });
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
+                      selectedUserIds.length > 0
+                        ? 'bg-amber-950/60 text-amber-400 border-amber-800 hover:bg-amber-900/60'
+                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                    }`}
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    Bloquear
+                  </button>
+
+                  <button
+                    disabled={selectedUserIds.length === 0}
+                    onClick={() => setShowChangeRoleModal(true)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
+                      selectedUserIds.length > 0
+                        ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800 hover:bg-indigo-900/60'
+                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                    }`}
+                  >
+                    <Shield className="w-3.5 h-3.5" />
+                    Alterar Perfil
+                  </button>
+
+                  <button
+                    disabled={selectedUserIds.length === 0}
+                    onClick={() => {
+                      setBatchPasswordValue('');
+                      setShowBatchPasswordModal(true);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
+                      selectedUserIds.length > 0
+                        ? 'bg-slate-800 text-amber-400 border-slate-700 hover:bg-slate-700'
+                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                    }`}
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    Resetar Senha
+                  </button>
+
+                  <button
+                    disabled={selectedUserIds.length === 0}
+                    onClick={() => setShowBatchDeleteModal(true)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
+                      selectedUserIds.length > 0
+                        ? 'bg-red-950/60 text-red-400 border-red-800 hover:bg-red-900/60'
+                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Excluir
+                  </button>
+                </div>
+              </div>
+
+              {/* USERS TABLE */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                <table className="w-full text-xs text-slate-300 border-collapse">
+                  <thead>
+                    <tr className="bg-slate-950/50 border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
+                      <th className="p-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isAllSelected}
+                          onChange={(e) => handleSelectAll(e.target.checked)}
+                          className="w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900 cursor-pointer"
+                        />
+                      </th>
+                      <th className="p-3 text-left">Nome</th>
+                      <th className="p-3 text-left">E-mail</th>
+                      <th className="p-3 text-left">Perfil</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-center">Último Acesso</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {companyUsersList.map(u => {
+                      const isSelected = selectedUserIds.includes(u.id);
+                      return (
+                        <tr key={u.id} className={`border-b border-slate-800/60 last:border-0 transition-colors ${isSelected ? 'bg-amber-950/25 border-l-2 border-amber-500' : 'hover:bg-slate-800/20'}`}>
+                          <td className="p-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleUserSelect(u.id)}
+                              className="w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-3 font-bold text-white">{u.nome}</td>
+                          <td className="p-3 font-mono text-slate-300">{u.email}</td>
+                          <td className="p-3">
+                            <span className="font-bold uppercase text-amber-400 bg-amber-950/40 border border-amber-900/40 px-2 py-0.5 rounded text-[10px]">
+                              {u.role}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${u.ativo ? 'bg-emerald-950 border-emerald-800 text-emerald-400' : 'bg-red-950 border-red-900 text-red-400'}`}>
+                              {u.ativo ? 'ATIVO' : 'BLOQUEADO'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center text-slate-500 font-mono">
+                            {u.ultimoLogin ? formatDateTime(u.ultimoLogin) : 'Nenhum'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          );
+        })()}
+
+        {/* TAB: DELIVERY HISTORY (SPRINT 16) */}
+        {activeTab === 'historico' && (
+          <DeliveryHistoryPanel
+            deliveries={deliveries}
+            companyName={company.nome}
+            onSelectDelivery={(del) => {
+              setSelectedDelivery(del);
+              setActiveTab('entregas');
+            }}
+          />
+        )}
+
+        {/* TAB: FORM CONFIGURATION (SPRINT 16) */}
+        {activeTab === 'formConfig' && (
+          <DeliveryFormConfigPanel
+            company={company}
+            onUpdateCompany={(updated) => {
+              if (onUpdateCompany) onUpdateCompany(updated);
+            }}
+            onSave={async (config) => {
+              const res = await Database.updateCompanyFormConfig(company.id, config);
+              if (res.success) {
+                const updatedComp = { ...company, deliveryFormConfig: config };
+                if (onUpdateCompany) onUpdateCompany(updatedComp);
+                setFeedback({ type: 'success', message: 'Configurações do formulário salvas com sucesso!' });
+                setTimeout(() => setFeedback(null), 4000);
+              } else {
+                alert('Erro ao salvar configuração: ' + (res.error || 'Erro desconhecido'));
+              }
+            }}
+          />
         )}
 
         {/* TAB 5: REPORTS & PERFORMANCE (ADMIN ONLY) */}
-        {activeTab === 'relatorios' && currentUser.role === 'admin' && (
+        {(activeTab === 'relatorios' || activeTab === 'relatorios') && (currentUser.role === 'admin' || currentUser.role === 'master') && (
           <ReportPanel 
             companyId={company.id}
             currentUser={currentUser}
@@ -1935,14 +2059,130 @@ export default function OperatorPanel({
           />
         )}
 
+        {/* TAB: GPS TRACKING & ROUTES (SPRINT 18) */}
+        {activeTab === 'rastreamentoGps' && (
+          <GpsTrackingPanel
+            companyId={company.id}
+            deliveries={deliveries}
+            drivers={drivers}
+            initialSelectedDeliveryId={gpsTargetDeliveryId}
+          />
+        )}
+
+        {/* TAB: CONFIGURAÇÕES DA EMPRESA */}
+        {activeTab === 'configuracoes' && (
+          <div className="space-y-6">
+            <div className="border-b border-slate-800 pb-4">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Sliders className="w-5 h-5 text-amber-500" />
+                <span>Configurações do Sistema & Empresa</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Gerencie os parâmetros globais da empresa, limites de operação e configurações da conta.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* DADOS DA EMPRESA */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <h3 className="font-bold text-white text-sm flex items-center gap-2 border-b border-slate-800 pb-2">
+                  <Building className="w-4 h-4 text-amber-500" />
+                  <span>Dados da Empresa Logada</span>
+                </h3>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-slate-400 font-semibold block mb-1">Razão Social / Nome Fantasia</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={company.nome}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-400 font-semibold block mb-1">CNPJ</label>
+                      <input
+                        type="text"
+                        disabled
+                        value={company.cnpj || '00.000.000/0001-00'}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-slate-400 font-semibold block mb-1">Telefone / Contato</label>
+                      <input
+                        type="text"
+                        disabled
+                        value={company.telefone || '(11) 99999-9999'}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-slate-400 text-[11px] block">Plano & Licença</span>
+                      <span className="font-bold text-amber-400 text-xs uppercase">{company.planoContratado || 'SaaS Pro Multiempresas'}</span>
+                    </div>
+                    <span className="px-2.5 py-1 bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold rounded-full">
+                      Licença Ativa
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* REGRAS OPERACIONAIS */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <h3 className="font-bold text-white text-sm flex items-center gap-2 border-b border-slate-800 pb-2">
+                  <Shield className="w-4 h-4 text-amber-500" />
+                  <span>Diretrizes e Parâmetros Operacionais</span>
+                </h3>
+
+                <div className="space-y-3 text-xs">
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                    <span className="font-bold text-white block">Sincronização GPS e Offline</span>
+                    <p className="text-slate-400 text-[11px]">
+                      O aplicativo rastreia localizações em segundo plano durante trajetos ativos. Em locais sem internet, os pings e fotos de comprovante são gravados em IndexedDB local e sincronizados ao restabelecer a conexão.
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                    <span className="font-bold text-white block">Comprovantes & Assinatura Digital</span>
+                    <p className="text-slate-400 text-[11px]">
+                      Exigência obrigatória de captura de foto, nome do recebedor e documento para finalização e validação de entregas.
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-amber-950/20 border border-amber-900/40 rounded-xl text-amber-300 text-[11px] font-medium">
+                    Identidade Visual Fast Gestão padronizada. Todos os menus e relatórios seguem o design corporativo oficial.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
+
+      {/* THEME CONFIGURATION MODAL (SPRINT 18) */}
+      <ThemeConfigModal
+        empresa={company}
+        isOpen={showThemeModal}
+        onClose={() => setShowThemeModal(false)}
+        onSaved={() => {
+          setShowThemeModal(false);
+        }}
+      />
 
       {/* -------------------- MODALS -------------------- */}
 
       {/* 1. ADD NEW DELIVERY MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={handleCreateDelivery} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-1.5">
                 <Package className="w-5 h-5 text-amber-500" />
@@ -1951,296 +2191,53 @@ export default function OperatorPanel({
               <button type="button" onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Fechar</button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              
-              {/* Documentos */}
-              <div className="space-y-4">
-                <h4 className="font-bold text-amber-500 uppercase text-[10px] tracking-wider">Identificação fiscal</h4>
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Número da Nota Fiscal *</label>
-                  <input
-                    type="text" required value={newNF} onChange={(e) => setNewNF(e.target.value)}
-                    placeholder="Ex: 001.245-A"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Número do Pedido</label>
-                  <input
-                    type="text" value={newPedido} onChange={(e) => setNewPedido(e.target.value)}
-                    placeholder="Ex: PD-89542"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
+            <DeliveryForm
+              company={company}
+              availableDrivers={availableDrivers}
+              users={users}
+              isSubmitting={isSubmittingDelivery}
+              submitButtonText="Gravar Registro"
+              onSubmit={handleDeliveryFormSubmit}
+              onCancel={() => setShowAddModal(false)}
+              onNavigateToDrivers={() => {
+                setShowAddModal(false);
+                setActiveTab('motoristas');
+                setShowDriverModal(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
-              {/* Cliente */}
-              <div className="space-y-4">
-                <h4 className="font-bold text-amber-500 uppercase text-[10px] tracking-wider">Dados do Cliente</h4>
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Nome do Cliente *</label>
-                  <input
-                    type="text" required value={newClientName} onChange={(e) => setNewClientName(e.target.value)}
-                    placeholder="Nome completo do comprador"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Telefone Celular</label>
-                    <input
-                      type="text" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)}
-                      placeholder="(11) 99999-9999"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">WhatsApp</label>
-                    <input
-                      type="text" value={newClientWhatsapp} onChange={(e) => setNewClientWhatsapp(e.target.value)}
-                      placeholder="(11) 99999-9999"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">CNPJ ou CPF</label>
-                  <input
-                    type="text" value={newClientDoc} onChange={(e) => setNewClientDoc(e.target.value)}
-                    placeholder="Documento para NF-e"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              {/* Endereço */}
-              <div className="md:col-span-2 space-y-4 pt-2">
-                <h4 className="font-bold text-amber-500 uppercase text-[10px] tracking-wider">Endereço de Destino (Localização Automática por Google Maps Ativada)</h4>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                  <div className="md:col-span-2">
-                    <label className="block text-slate-400 mb-1 font-semibold">Rua / Logradouro *</label>
-                    <input
-                      type="text" required value={newRua} onChange={(e) => setNewRua(e.target.value)}
-                      placeholder="Av. Paulista, etc"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-semibold">Número *</label>
-                    <input
-                      type="text" required value={newNumero} onChange={(e) => setNewNumero(e.target.value)}
-                      placeholder="Ex: 1000"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-semibold">CEP *</label>
-                    <input
-                      type="text" required value={newCEP} onChange={(e) => setNewCEP(e.target.value)}
-                      placeholder="01311-100"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Bairro</label>
-                    <input
-                      type="text" value={newBairro} onChange={(e) => setNewBairro(e.target.value)}
-                      placeholder="Bela Vista"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Cidade</label>
-                    <input
-                      type="text" value={newCidade} onChange={(e) => setNewCidade(e.target.value)}
-                      placeholder="São Paulo"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Complemento / Referência</label>
-                    <input
-                      type="text" value={newComplemento} onChange={(e) => setNewComplemento(e.target.value)}
-                      placeholder="Apto 52, bloco B, etc."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Valores & Pagamentos */}
-              <div className="space-y-4 pt-2">
-                <h4 className="font-bold text-amber-500 uppercase text-[10px] tracking-wider">Financeiro e Logística</h4>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Volumes *</label>
-                    <input
-                      type="number" required min="1" value={newVolumes} onChange={(e) => setNewVolumes(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Venda *</label>
-                    <input
-                      type="text" required value={newValor} onChange={(e) => setNewValor(e.target.value)}
-                      placeholder="R$ 150,00"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Frete</label>
-                    <input
-                      type="text" value={newFrete} onChange={(e) => setNewFrete(e.target.value)}
-                      placeholder="Opcional"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-semibold">Forma de Pagamento</label>
-                    <select
-                      value={newFormaPagamento} onChange={(e) => setNewFormaPagamento(e.target.value as FormaPagamento)}
-                      className="w-full bg-slate-950 border border-slate-700/80 hover:border-amber-500 rounded-lg p-2.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer text-xs"
-                    >
-                      <option value="ja_pago" className="bg-slate-900 text-white">Já Pago no Site/Loja</option>
-                      <option value="pix" className="bg-slate-900 text-white">PIX na entrega</option>
-                      <option value="dinheiro" className="bg-slate-900 text-white">Dinheiro na entrega</option>
-                      <option value="cartao_credito" className="bg-slate-900 text-white">Cartão de Crédito</option>
-                      <option value="cartao_debito" className="bg-slate-900 text-white">Cartão de Débito</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-semibold">Status Pagamento</label>
-                    <select
-                      value={newStatusPagamento} onChange={(e) => setNewStatusPagamento(e.target.value as StatusPagamento)}
-                      className="w-full bg-slate-950 border border-slate-700/80 hover:border-amber-500 rounded-lg p-2.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer text-xs"
-                    >
-                      <option value="pago" className="bg-slate-900 text-emerald-400">PAGO (Já liquidado)</option>
-                      <option value="receber_na_entrega" className="bg-slate-900 text-red-400">RECEBER NA ENTREGA</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Rota */}
-              <div className="space-y-4 pt-2">
-                <h4 className="font-bold text-amber-500 uppercase text-[10px] tracking-wider">Agendamento & Designação</h4>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-semibold">Data da Entrega Prevista *</label>
-                    <input
-                      type="date"
-                      required
-                      value={newDateEntrega}
-                      onChange={(e) => setNewDateEntrega(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white font-bold focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-
-                  <div className="flex flex-col justify-end pb-1">
-                    <label className="flex items-center gap-2 text-xs text-slate-300 font-bold cursor-pointer bg-slate-900 p-2 rounded-lg border border-slate-800 hover:border-amber-500/50">
-                      <input
-                        type="checkbox"
-                        checked={newIsAgendada}
-                        onChange={(e) => setNewIsAgendada(e.target.checked)}
-                        className="rounded border-slate-700 bg-slate-950 text-amber-500 focus:ring-amber-500 h-4 w-4"
-                      />
-                      Entrega Agendada
-                    </label>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-slate-400 mb-1 font-semibold">Prioridade</label>
-                    <select
-                      value={newPrioridade} onChange={(e) => setNewPrioridade(e.target.value as any)}
-                      className="w-full bg-slate-950 border border-slate-700/80 hover:border-amber-500 rounded-lg p-2.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer text-xs"
-                    >
-                      <option value="baixa" className="bg-slate-900 text-slate-300">Baixa</option>
-                      <option value="media" className="bg-slate-900 text-white">Média</option>
-                      <option value="alta" className="bg-slate-900 text-red-400">Alta / Urgente</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Hora Estimada</label>
-                    <input
-                      type="time" value={newHora} onChange={(e) => setNewHora(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1 font-semibold">Escalar Motorista / Entregador</label>
-                  <select
-                    value={newMotoristaId} onChange={(e) => setNewMotoristaId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-amber-400 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
-                  >
-                    <option value="">Não designar motorista agora</option>
-                    {availableDrivers.map(drv => (
-                      <option key={drv.id} value={drv.id}>{drv.nome} ({drv.telefone || 'Sem tel'})</option>
-                    ))}
-                  </select>
-                  {availableDrivers.length === 0 && (
-                    <div className="flex items-center justify-between gap-2 mt-2 p-2 bg-amber-950/30 border border-amber-800/40 rounded-lg text-amber-400 text-xs">
-                      <span>⚠️ Nenhum entregador cadastrado.</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowAddModal(false);
-                          setActiveTab('motoristas');
-                          setShowDriverModal(true);
-                        }}
-                        className="underline font-bold hover:text-white"
-                      >
-                        + Cadastrar Entregador
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Obs */}
-              <div className="md:col-span-2">
-                <label className="block text-slate-400 mb-1">Observações Operacionais</label>
-                <textarea
-                  rows={2} value={newObs} onChange={(e) => setNewObs(e.target.value)}
-                  placeholder="Instruções para o entregador..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
+      {/* EDIT DELIVERY MODAL */}
+      {showEditDeliveryModal && (editingDelivery || selectedDelivery) && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-1.5">
+                <FileText className="w-5 h-5 text-amber-500" />
+                Editar Entrega #{(editingDelivery || selectedDelivery)?.numeroNF}
+              </h3>
+              <button type="button" onClick={() => {
+                setShowEditDeliveryModal(false);
+                setEditingDelivery(null);
+              }} className="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Fechar</button>
             </div>
 
-            <div className="border-t border-slate-800 pt-4 flex justify-end gap-2">
-              <button
-                type="button" onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs font-bold"
-              >
-                Voltar
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmittingDelivery}
-                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-bold flex items-center gap-2"
-              >
-                {isSubmittingDelivery ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Gravando...
-                  </>
-                ) : (
-                  'Gravar Registro'
-                )}
-              </button>
-            </div>
-          </form>
+            <DeliveryForm
+              company={company}
+              initialValues={editingDelivery || selectedDelivery}
+              availableDrivers={availableDrivers}
+              users={users}
+              isSubmitting={isSubmittingDelivery}
+              submitButtonText="Salvar Alterações"
+              onSubmit={handleSaveEditDeliverySubmit}
+              onCancel={() => {
+                setShowEditDeliveryModal(false);
+                setEditingDelivery(null);
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -2316,28 +2313,38 @@ export default function OperatorPanel({
               {/* Endereço e CNH */}
               <div className="space-y-4">
                 <h4 className="font-bold text-amber-500 uppercase text-[10px]">Endereço & CNH</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="col-span-2">
+                    <CepInput
+                      label="CEP"
+                      value={newDriverCEP}
+                      onChange={setNewDriverCEP}
+                      targetNumeroInputId="newDriverEnderecoInput"
+                      onAddressFound={(addr) => {
+                        const fullAddr = addr.bairro ? `${addr.rua}, ${addr.bairro}` : addr.rua;
+                        setNewDriverEndereco(fullAddr);
+                        if (addr.cidade) setNewDriverCidade(addr.cidade);
+                      }}
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="block text-slate-400 mb-1">Endereço Residencial</label>
                   <input
+                    id="newDriverEnderecoInput"
+                    name="numero"
                     type="text" value={newDriverEndereco} onChange={(e) => setNewDriverEndereco(e.target.value)}
+                    placeholder="Rua, número, bairro"
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Cidade</label>
-                    <input
-                      type="text" value={newDriverCidade} onChange={(e) => setNewDriverCidade(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">CEP</label>
-                    <input
-                      type="text" value={newDriverCEP} onChange={(e) => setNewDriverCEP(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Cidade</label>
+                  <input
+                    type="text" value={newDriverCidade} onChange={(e) => setNewDriverCidade(e.target.value)}
+                    placeholder="Cidade / UF"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                  />
                 </div>
                 <div className="grid grid-cols-3 gap-1">
                   <div className="col-span-2">
@@ -2804,8 +2811,24 @@ export default function OperatorPanel({
               </div>
 
               <div className="md:col-span-2">
+                <CepInput
+                  label="CEP"
+                  value={cCEP}
+                  onChange={setCCEP}
+                  targetNumeroInputId="clientEnderecoInput"
+                  onAddressFound={(addr) => {
+                    if (addr.rua) setCEndereco(addr.rua);
+                    if (addr.bairro) setCBairro(addr.bairro);
+                    if (addr.cidade) setCCidade(addr.estado ? `${addr.cidade} - ${addr.estado}` : addr.cidade);
+                  }}
+                />
+              </div>
+
+              <div>
                 <label className="block text-slate-400 mb-1">Endereço (Rua e Nº)</label>
                 <input
+                  id="clientEnderecoInput"
+                  name="numero"
                   type="text" value={cEndereco} onChange={(e) => setCEndereco(e.target.value)}
                   placeholder="Av. Paulista, 1000"
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
@@ -2818,15 +2841,6 @@ export default function OperatorPanel({
                   type="text" value={cBairro} onChange={(e) => setCBairro(e.target.value)}
                   placeholder="Bela Vista"
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">CEP</label>
-                <input
-                  type="text" value={cCEP} onChange={(e) => setCCEP(e.target.value)}
-                  placeholder="01310-100"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
                 />
               </div>
             </div>
@@ -2943,6 +2957,279 @@ export default function OperatorPanel({
         </div>
       )}
 
+      {/* MODAL: EDIT USER (OPERATOR PANEL) */}
+      {showEditUserModal && userToEdit && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
+              <Edit3 className="w-4 h-4 text-amber-500" />
+              Editar Dados do Usuário
+            </h3>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const res = await Database.updateUser(company.id, userToEdit.id, {
+                nome: editUserForm.nome,
+                email: editUserForm.email,
+                role: editUserForm.role,
+                ativo: editUserForm.ativo
+              });
+              if (res.success) {
+                setFeedback({ type: 'success', message: `Usuário "${editUserForm.nome}" atualizado com sucesso!` });
+                setShowEditUserModal(false);
+                setUserToEdit(null);
+              } else {
+                setFeedback({ type: 'error', message: res.error || 'Erro ao atualizar usuário.' });
+              }
+            }} className="space-y-3">
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Nome Completo *</label>
+                <input
+                  type="text"
+                  required
+                  value={editUserForm.nome}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, nome: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">E-mail *</label>
+                <input
+                  type="email"
+                  required
+                  value={editUserForm.email}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Perfil de Acesso *</label>
+                <select
+                  value={editUserForm.role}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value as UserRole })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                >
+                  <option value="admin">Administrador</option>
+                  <option value="operador">Operador</option>
+                  <option value="motorista">Entregador / Motorista</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Status de Acesso</label>
+                <select
+                  value={editUserForm.ativo ? 'true' : 'false'}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, ativo: e.target.value === 'true' })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                >
+                  <option value="true">Ativo / Liberado</option>
+                  <option value="false">Bloqueado / Suspenso</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowEditUserModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CHANGE ROLE (BATCH) */}
+      {showChangeRoleModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
+              <Shield className="w-4 h-4 text-amber-500" />
+              Alterar Perfil em Lote
+            </h3>
+
+            <p className="text-slate-300">
+              Selecione o novo perfil que será aplicado aos <strong>{selectedUserIds.length}</strong> usuário(s) selecionados:
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Novo Perfil *</label>
+                <select
+                  value={batchRoleValue}
+                  onChange={(e) => setBatchRoleValue(e.target.value as UserRole)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                >
+                  <option value="admin">Administrador</option>
+                  <option value="operador">Operador</option>
+                  <option value="motorista">Entregador / Motorista</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowChangeRoleModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await Database.updateUsersRoleBatch(selectedUserIds, batchRoleValue);
+                    setShowChangeRoleModal(false);
+                    setFeedback({ type: 'success', message: `Perfil alterado para ${batchRoleValue} em ${selectedUserIds.length} usuário(s).` });
+                  }}
+                  className="px-5 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-colors"
+                >
+                  Aplicar Perfil
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: BATCH PASSWORD RESET */}
+      {showBatchPasswordModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
+              <Key className="w-4 h-4 text-amber-500" />
+              Resetar Senhas em Lote
+            </h3>
+
+            <p className="text-slate-300">
+              Defina a nova senha que será atribuída aos <strong>{selectedUserIds.length}</strong> usuários selecionados:
+            </p>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!batchPasswordValue) return;
+              await Database.resetUsersPasswordBatch(selectedUserIds, batchPasswordValue);
+              setShowBatchPasswordModal(false);
+              setBatchPasswordValue('');
+              setFeedback({ type: 'success', message: `Senhas alteradas para ${selectedUserIds.length} usuário(s).` });
+            }} className="space-y-3">
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Nova Senha em Lote *</label>
+                <input
+                  type="password"
+                  required
+                  value={batchPasswordValue}
+                  onChange={(e) => setBatchPasswordValue(e.target.value)}
+                  placeholder="Digite a nova senha comum"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchPasswordModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400 transition-colors"
+                >
+                  Redefinir Senhas
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: BATCH DELETE CONFIRMATION */}
+      {showBatchDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-red-900/50 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
+            <h3 className="text-sm font-bold text-red-400 uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              Confirmar Exclusão em Lote
+            </h3>
+
+            <p className="text-slate-300">
+              Tem certeza que deseja excluir permanentemente os <strong>{selectedUserIds.length}</strong> usuário(s) selecionados?
+            </p>
+
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 max-h-36 overflow-y-auto space-y-1">
+              {users.filter(u => selectedUserIds.includes(u.id)).map(u => (
+                <div key={u.id} className="text-slate-300 font-semibold flex items-center justify-between border-b border-slate-900/60 pb-1">
+                  <span>{u.nome}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{u.email}</span>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-[11px] text-red-400 font-semibold">
+              ⚠️ Esta operação excluirá permanentemente os registros do banco de dados e revogará os logins.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteModal(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const selectedUsersList = users.filter(u => selectedUserIds.includes(u.id)).map(u => ({ id: u.id, companyId: u.companyId }));
+                  const res = await Database.deleteUsersBatch(selectedUsersList);
+                  setShowBatchDeleteModal(false);
+                  if (res.success) {
+                    setSelectedUserIds([]);
+                    setFeedback({ type: 'success', message: `${res.count} usuário(s) excluído(s) permanentemente com sucesso.` });
+                  } else {
+                    setFeedback({ type: 'error', message: res.error || 'Erro ao excluir usuários.' });
+                  }
+                }}
+                className="px-5 py-2 bg-red-600 text-white font-bold rounded-xl hover:bg-red-500 transition-colors shadow-lg shadow-red-600/20"
+              >
+                Excluir Permanentemente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR SCANNER MODAL FOR OPERATOR */}
+      {showScannerModal && (
+        <QrScannerModal
+          deliveries={deliveries}
+          onSelectDelivery={(del) => {
+            setSelectedDelivery(del);
+            setShowScannerModal(false);
+          }}
+          onConfirmDeliveryByQr={(deliveryId) => {
+            const target = deliveries.find(d => d.id === deliveryId);
+            if (target) {
+              setSelectedDelivery(target);
+              setShowScannerModal(false);
+            }
+          }}
+          onClose={() => setShowScannerModal(false)}
+        />
+      )}
+
+      </div>
     </div>
   );
 }

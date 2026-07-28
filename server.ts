@@ -148,24 +148,64 @@ function hashPassword(pass: string): string {
 // Seed Initial Database in Firestore
 async function seedInitialData() {
   try {
-    const empSnap = await getDocs(collection(firestoreDb, 'empresas'));
-    if (empSnap.empty) {
-      const companyId = 'emp_teste_001';
-      const company: ApiCompany = {
-        id: companyId,
-        nome: 'Empresa Teste Logística',
+    const companyId = 'emp_teste_001';
+
+    // ALWAYS ensure master@sistema.com exists with password master123
+    const masterSistemaSnap = await getDocs(query(collection(firestoreDb, 'usuarios'), where('email', '==', 'master@sistema.com')));
+    if (masterSistemaSnap.empty) {
+      const masterUserSistema: ApiUser = {
+        id: 'usr_master_sistema',
+        companyId,
+        nome: 'Super Administrador Master',
+        email: 'master@sistema.com',
+        senhaHash: hashPassword('master123'),
+        telefone: '(11) 99999-9999',
+        role: 'master',
+        ativo: true,
         criadoEm: new Date().toISOString()
       };
+      await setDoc(doc(firestoreDb, 'usuarios', masterUserSistema.id), masterUserSistema);
+      console.log('Criado usuário master@sistema.com no Firestore.');
+    } else {
+      // Ensure role and active status and update password hash
+      const docRef = masterSistemaSnap.docs[0].ref;
+      await updateDoc(docRef, {
+        senhaHash: hashPassword('master123'),
+        ativo: true,
+        role: 'master'
+      });
+      console.log('Atualizado senha do usuário master@sistema.com.');
+    }
 
-      const masterUser: ApiUser = {
+    // ALWAYS ensure master@fastlog.com also exists with password master123
+    const masterFastlogSnap = await getDocs(query(collection(firestoreDb, 'usuarios'), where('email', '==', 'master@fastlog.com')));
+    if (masterFastlogSnap.empty) {
+      const masterUserFastlog: ApiUser = {
         id: 'usr_master_001',
         companyId,
         nome: 'Administrador Master',
         email: 'master@fastlog.com',
-        senhaHash: hashPassword('123456'),
+        senhaHash: hashPassword('master123'),
         telefone: '(11) 99999-9999',
         role: 'master',
         ativo: true,
+        criadoEm: new Date().toISOString()
+      };
+      await setDoc(doc(firestoreDb, 'usuarios', masterUserFastlog.id), masterUserFastlog);
+    } else {
+      const docRef = masterFastlogSnap.docs[0].ref;
+      await updateDoc(docRef, {
+        senhaHash: hashPassword('master123'),
+        ativo: true,
+        role: 'master'
+      });
+    }
+
+    const empSnap = await getDocs(collection(firestoreDb, 'empresas'));
+    if (empSnap.empty) {
+      const company: ApiCompany = {
+        id: companyId,
+        nome: 'Empresa Teste Logística',
         criadoEm: new Date().toISOString()
       };
 
@@ -264,7 +304,6 @@ async function seedInitialData() {
       };
 
       await setDoc(doc(firestoreDb, 'empresas', companyId), company);
-      await setDoc(doc(firestoreDb, 'usuarios', masterUser.id), masterUser);
       await setDoc(doc(firestoreDb, 'usuarios', adminUser.id), adminUser);
       await setDoc(doc(firestoreDb, 'usuarios', driverUser.id), driverUser);
       await setDoc(doc(firestoreDb, 'drivers', driverId), driver);
@@ -336,6 +375,31 @@ app.post('/api/auth/login', async (req, res) => {
     const hash = hashPassword(password);
     if (user.senhaHash !== hash) {
       return res.status(401).json({ error: 'E-mail ou senha incorretos' });
+    }
+
+    // Check company status for non-master users
+    if (user.role !== 'master' && user.companyId) {
+      const companySnap = await getDoc(doc(firestoreDb, 'empresas', user.companyId));
+      if (companySnap.exists()) {
+        const compData = companySnap.data();
+        const status = compData.status || 'ativa';
+        const dataVenc = compData.dataVencimento;
+
+        let isExpired = false;
+        if (dataVenc) {
+          const vencDate = new Date(dataVenc);
+          const now = new Date();
+          if (!isNaN(vencDate.getTime()) && vencDate < now) {
+            isExpired = true;
+          }
+        }
+
+        if (status === 'suspensa' || status === 'bloqueada' || status === 'cancelada' || isExpired) {
+          return res.status(403).json({ 
+            error: 'Seu acesso está temporariamente suspenso. Entre em contato com o administrador da plataforma.' 
+          });
+        }
+      }
     }
 
     const ultimoLogin = new Date().toISOString();
@@ -436,6 +500,238 @@ app.post('/api/auth/register-company', async (req, res) => {
   } catch (err) {
     console.error('Erro em /api/auth/register-company:', err);
     return res.status(500).json({ error: 'Erro ao registrar empresa e usuário administrador' });
+  }
+});
+
+// MASTER PANEL (SUPER ADMIN) ROUTES
+app.get('/api/master/companies', authenticateToken, async (req, res) => {
+  try {
+    const snap = await getDocs(collection(firestoreDb, 'empresas'));
+    const companies = snap.docs.map(d => d.data());
+    return res.json({ success: true, companies });
+  } catch (err) {
+    console.error('Erro ao buscar empresas:', err);
+    return res.status(500).json({ error: 'Erro ao listar empresas' });
+  }
+});
+
+app.post('/api/master/companies', authenticateToken, async (req, res) => {
+  try {
+    const { 
+      nome, nomeFantasia, cnpj, responsavel, telefone, email, 
+      planoContratado, valorPlano, dataInicio, dataVencimento, status, limites,
+      adminName, adminEmail, adminPassword 
+    } = req.body;
+
+    if (!nome || !adminName || !adminEmail || !adminPassword) {
+      return res.status(400).json({ error: 'Nome da empresa e dados do administrador são obrigatórios.' });
+    }
+
+    const cleanEmail = String(adminEmail).trim().toLowerCase();
+    const q = query(collection(firestoreDb, 'usuarios'), where('email', '==', cleanEmail));
+    const existing = await getDocs(q);
+    if (!existing.empty) {
+      return res.status(400).json({ error: 'O e-mail informado para o administrador já está em uso.' });
+    }
+
+    const companyId = 'emp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const newCompany = {
+      id: companyId,
+      nome,
+      nomeFantasia: nomeFantasia || nome,
+      cnpj: cnpj || '',
+      responsavel: responsavel || adminName,
+      telefone: telefone || '',
+      email: email || cleanEmail,
+      planoContratado: planoContratado || 'Profissional',
+      valorPlano: Number(valorPlano) || 199,
+      dataInicio: dataInicio || new Date().toISOString().split('T')[0],
+      dataVencimento: dataVencimento || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      status: status || 'ativa',
+      limites: limites || {
+        maxClientes: 1000,
+        maxEntregasMes: 5000,
+        maxUsuarios: 20,
+        maxEntregadores: 10,
+        maxOperadores: 10,
+        maxArmazenamentoMB: 5000
+      },
+      criadoEm: new Date().toISOString()
+    };
+
+    const adminId = 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const newAdmin = {
+      id: adminId,
+      companyId,
+      nome: adminName,
+      email: cleanEmail,
+      senhaHash: hashPassword(adminPassword),
+      telefone: telefone || '',
+      role: 'admin',
+      ativo: true,
+      criadoEm: new Date().toISOString()
+    };
+
+    await setDoc(doc(firestoreDb, 'empresas', companyId), newCompany);
+    await setDoc(doc(firestoreDb, 'usuarios', adminId), newAdmin);
+
+    // Register Master Audit Log
+    const auditId = 'm_aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const masterAudit = {
+      id: auditId,
+      usuarioId: req.user?.userId || 'master',
+      usuarioNome: req.user?.email || 'Super Administrador',
+      tipoAcao: 'criar_empresa',
+      descricao: `Criou a empresa "${nome}" (Plano: ${newCompany.planoContratado})`,
+      detalhes: { companyId, nome, planoContratado: newCompany.planoContratado, adminEmail: cleanEmail },
+      dataHora: new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'master_auditoria', auditId), masterAudit);
+
+    return res.json({ success: true, company: newCompany, admin: newAdmin });
+  } catch (err: any) {
+    console.error('Erro ao cadastrar empresa pelo Master:', err);
+    return res.status(500).json({ error: 'Erro ao cadastrar empresa: ' + (err?.message || String(err)) });
+  }
+});
+
+app.put('/api/master/companies/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    const compRef = doc(firestoreDb, 'empresas', id);
+    const snap = await getDoc(compRef);
+    if (!snap.exists()) {
+      return res.status(404).json({ error: 'Empresa não encontrada' });
+    }
+
+    const updated = {
+      ...snap.data(),
+      ...updates,
+      atualizadoEm: new Date().toISOString()
+    };
+
+    await setDoc(compRef, updated, { merge: true });
+
+    // Audit log
+    const auditId = 'm_aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const masterAudit = {
+      id: auditId,
+      usuarioId: req.user?.userId || 'master',
+      usuarioNome: req.user?.email || 'Super Administrador',
+      tipoAcao: updates.status ? (updates.status === 'bloqueada' ? 'bloquear_empresa' : updates.status === 'suspensa' ? 'suspender_empresa' : 'reativar_empresa') : 'editar_empresa',
+      descricao: `Atualizou os dados da empresa "${updated.nome}"`,
+      detalhes: { companyId: id, updates },
+      dataHora: new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'master_auditoria', auditId), masterAudit);
+
+    return res.json({ success: true, company: updated });
+  } catch (err) {
+    console.error('Erro ao atualizar empresa:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar empresa' });
+  }
+});
+
+app.delete('/api/master/companies/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const compRef = doc(firestoreDb, 'empresas', id);
+    const snap = await getDoc(compRef);
+    if (!snap.exists()) {
+      return res.status(404).json({ error: 'Empresa não encontrada' });
+    }
+
+    const companyName = snap.data().nome;
+    await deleteDoc(compRef);
+
+    // Clean up linked orphan documents across collections
+    const collectionsToClean = ['usuarios', 'drivers', 'vehicles', 'deliveries', 'clientes', 'auditoria'];
+    for (const colName of collectionsToClean) {
+      try {
+        const q = query(collection(firestoreDb, colName), where('companyId', '==', id));
+        const qSnap = await getDocs(q);
+        for (const docItem of qSnap.docs) {
+          await deleteDoc(docItem.ref);
+        }
+      } catch (colErr) {
+        console.warn(`Aviso ao limpar coleção ${colName} para empresa ${id}:`, colErr);
+      }
+    }
+
+    // Audit log
+    const auditId = 'm_aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const masterAudit = {
+      id: auditId,
+      usuarioId: req.user?.userId || 'master',
+      usuarioNome: req.user?.email || 'Super Administrador',
+      tipoAcao: 'excluir_empresa',
+      descricao: `Excluiu a empresa "${companyName}" (ID: ${id}) e limpou registros associados.`,
+      detalhes: { companyId: id, companyName },
+      dataHora: new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'master_auditoria', auditId), masterAudit);
+
+    return res.json({ success: true, message: `Empresa "${companyName}" e todos os registros associados foram removidos com sucesso.` });
+  } catch (err) {
+    console.error('Erro ao excluir empresa:', err);
+    return res.status(500).json({ error: 'Erro ao excluir empresa' });
+  }
+});
+
+app.get('/api/master/audit-logs', authenticateToken, async (req, res) => {
+  try {
+    const snap = await getDocs(collection(firestoreDb, 'master_auditoria'));
+    const logs = snap.docs.map(d => d.data());
+    return res.json({ success: true, logs });
+  } catch (err) {
+    console.error('Erro ao buscar auditoria master:', err);
+    return res.status(500).json({ error: 'Erro ao buscar auditoria master' });
+  }
+});
+
+app.get('/api/master/custom-roles', authenticateToken, async (req, res) => {
+  try {
+    const snap = await getDocs(collection(firestoreDb, 'custom_roles'));
+    const roles = snap.docs.map(d => d.data());
+    return res.json({ success: true, roles });
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao buscar perfis de acesso' });
+  }
+});
+
+app.post('/api/master/custom-roles', authenticateToken, async (req, res) => {
+  try {
+    const roleData = req.body;
+    const roleId = roleData.id || ('role_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
+    const fullRole = {
+      ...roleData,
+      id: roleId,
+      criadoEm: roleData.criadoEm || new Date().toISOString()
+    };
+    await setDoc(doc(firestoreDb, 'custom_roles', roleId), fullRole);
+    return res.json({ success: true, role: fullRole });
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao salvar perfil de acesso' });
+  }
+});
+
+app.delete('/api/master/custom-roles/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (req.user?.role !== 'master') {
+      return res.status(403).json({ error: 'Apenas usuários Master podem excluir perfis de acesso.' });
+    }
+    const roleRef = doc(firestoreDb, 'custom_roles', id);
+    const snap = await getDoc(roleRef);
+    if (!snap.exists()) {
+      return res.status(404).json({ error: 'Perfil de acesso não encontrado.' });
+    }
+    await deleteDoc(roleRef);
+    return res.json({ success: true, message: 'Perfil de acesso excluído com sucesso.' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Erro ao excluir perfil de acesso.' });
   }
 });
 
@@ -714,6 +1010,95 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
   } catch (err) {
     console.error('Erro ao atualizar usuário:', err);
     return res.status(500).json({ error: 'Erro ao atualizar usuário' });
+  }
+});
+
+app.delete('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const userRef = doc(firestoreDb, 'usuarios', userId);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    await deleteDoc(userRef);
+    return res.json({ success: true, message: 'Usuário excluído com sucesso.' });
+  } catch (err) {
+    console.error('Erro ao excluir usuário:', err);
+    return res.status(500).json({ error: 'Erro ao excluir usuário' });
+  }
+});
+
+app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const updates = req.body;
+
+    const drvRef = doc(firestoreDb, 'drivers', driverId);
+    const drvSnap = await getDoc(drvRef);
+    if (!drvSnap.exists()) {
+      return res.status(404).json({ error: 'Entregador não encontrado' });
+    }
+
+    await updateDoc(drvRef, updates);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao atualizar entregador:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar entregador' });
+  }
+});
+
+app.delete('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const drvRef = doc(firestoreDb, 'drivers', driverId);
+    const drvSnap = await getDoc(drvRef);
+    if (!drvSnap.exists()) {
+      return res.status(404).json({ error: 'Entregador não encontrado' });
+    }
+
+    await deleteDoc(drvRef);
+    return res.json({ success: true, message: 'Entregador excluído com sucesso.' });
+  } catch (err) {
+    console.error('Erro ao excluir entregador:', err);
+    return res.status(500).json({ error: 'Erro ao excluir entregador' });
+  }
+});
+
+app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const updates = req.body;
+
+    const vecRef = doc(firestoreDb, 'vehicles', vehicleId);
+    const vecSnap = await getDoc(vecRef);
+    if (!vecSnap.exists()) {
+      return res.status(404).json({ error: 'Veículo não encontrado' });
+    }
+
+    await updateDoc(vecRef, updates);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao atualizar veículo:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar veículo' });
+  }
+});
+
+app.delete('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const vecRef = doc(firestoreDb, 'vehicles', vehicleId);
+    const vecSnap = await getDoc(vecRef);
+    if (!vecSnap.exists()) {
+      return res.status(404).json({ error: 'Veículo não encontrado' });
+    }
+
+    await deleteDoc(vecRef);
+    return res.json({ success: true, message: 'Veículo excluído com sucesso.' });
+  } catch (err) {
+    console.error('Erro ao excluir veículo:', err);
+    return res.status(500).json({ error: 'Erro ao excluir veículo' });
   }
 });
 

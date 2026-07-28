@@ -3,12 +3,177 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type UserRole = 'master' | 'admin' | 'operador' | 'motorista';
+export type UserRole = 'master' | 'admin' | 'operador' | 'motorista' | 'entregador' | 'driver' | 'custom' | string;
+
+export type CompanyStatus = 'ativa' | 'suspensa' | 'bloqueada' | 'cancelada';
+export type PlanoTipo = 'Mensal' | 'Anual' | 'Vitalicio' | 'Básico' | 'Profissional' | 'Enterprise';
+
+export interface CompanyLimits {
+  maxClientes: number;
+  maxEntregasMes: number;
+  maxUsuarios: number;
+  maxEntregadores: number;
+  maxOperadores: number;
+  maxArmazenamentoMB: number;
+}
+
+export type CustomFieldType = 'texto' | 'numero' | 'lista' | 'data' | 'moeda' | 'checkbox' | 'qrcode' | 'codigo_interno';
+
+export interface StandardFieldConfig {
+  id: string;
+  label: string;
+  required: boolean;
+  enabled: boolean;
+  order: number;
+}
+
+export interface CustomFieldConfig {
+  id: string;
+  label: string;
+  type: CustomFieldType;
+  options?: string[];
+  required: boolean;
+  enabled: boolean;
+  order: number;
+  placeholder?: string;
+}
+
+export interface DeliveryFormConfig {
+  standardFields: StandardFieldConfig[];
+  customFields: CustomFieldConfig[];
+}
+
+export interface CompanyModulesConfig {
+  entregas: boolean;
+  historico: boolean;
+  usuarios: boolean;
+  colaboradores?: boolean;
+  formConfig: boolean;
+  qrcode: boolean;
+  relatorios: boolean;
+  rastreamentoGps?: boolean;
+  personalizacaoVisual?: boolean;
+  financeiro?: boolean;
+  logs?: boolean;
+}
+
+export interface CompanyThemeConfig {
+  logoUrl?: string;
+  faviconUrl?: string;
+  loginBgUrl?: string;
+  bannerUrl?: string;
+  primaryColor?: string; // hex string ex: #f59e0b
+  secondaryColor?: string; // hex string ex: #3b82f6
+  buttonColor?: string;
+  menuColor?: string;
+  cardColor?: string;
+  tagColor?: string;
+  darkModePreference?: 'claro' | 'escuro' | 'sistema';
+}
 
 export interface Empresa {
   id: string;
   nome: string;
+  nomeFantasia?: string;
   cnpj?: string;
+  responsavel?: string;
+  telefone?: string;
+  email?: string;
+  cep?: string;
+  endereco?: string;
+  cidade?: string;
+  planoContratado?: PlanoTipo;
+  valorPlano?: number;
+  dataInicio?: string;
+  dataVencimento?: string;
+  status: CompanyStatus;
+  limites?: CompanyLimits;
+  deliveryFormConfig?: DeliveryFormConfig;
+  enabledModules?: CompanyModulesConfig;
+  themeConfig?: CompanyThemeConfig;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export interface GpsLogPoint {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  speed?: number; // km/h
+  timestamp: string; // ISO String
+  address?: string;
+  event?: 'aceito' | 'em_rota' | 'periodic' | 'parado' | 'entregue' | 'nao_entregue';
+  deliveryId?: string;
+}
+
+export interface DriverLocationState {
+  driverId: string;
+  driverName: string;
+  companyId: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  speed?: number;
+  address?: string;
+  lastUpdated: string; // ISO String
+  isOnline: boolean;
+  isMoving?: boolean;
+  currentDeliveryId?: string;
+  batteryLevel?: number;
+  heading?: number;
+}
+
+export interface DeliveryRouteHistory {
+  deliveryId: string;
+  driverId: string;
+  driverName?: string;
+  companyId: string;
+  points: GpsLogPoint[];
+  startedAt: string;
+  finishedAt?: string;
+  totalDistanceKm?: number;
+  totalDurationMin?: number;
+  avgSpeedKmH?: number;
+}
+
+export interface OfflineSyncItem {
+  id: string;
+  companyId: string;
+  userId?: string;
+  action: 'create_delivery' | 'update_delivery' | 'update_delivery_status' | 'add_comprovante' | 'gps_log' | 'update_company_theme';
+  payload: any;
+  createdAt: string;
+  retryCount: number;
+  status: 'pending' | 'syncing' | 'failed' | 'completed';
+  error?: string;
+}
+
+export interface GranularPermissions {
+  criar_clientes: boolean;
+  editar_clientes: boolean;
+  excluir_clientes: boolean;
+  criar_entregas: boolean;
+  editar_entregas: boolean;
+  excluir_entregas: boolean;
+  alterar_status_entregas: boolean;
+  criar_usuarios: boolean;
+  excluir_usuarios: boolean;
+  ver_relatorios: boolean;
+  exportar_dados: boolean;
+  configuracoes_empresa: boolean;
+  dashboard: boolean;
+  financeiro: boolean;
+  logs: boolean;
+  backup: boolean;
+  ia: boolean;
+}
+
+export interface PerfilPermissoes {
+  id: string;
+  companyId: string; // 'global' ou ID específico
+  nome: string; // Ex: Financeiro, Operações, Supervisor, Expedição, Atendente, Gerente
+  descricao?: string;
+  permissoes: GranularPermissions;
   criadoEm: string;
 }
 
@@ -20,6 +185,8 @@ export interface Usuario {
   senhaHash: string; // Para autenticação real simulada
   telefone: string;
   role: UserRole;
+  customRoleId?: string; // Se role === 'custom'
+  permissoesCustomizadas?: GranularPermissions; // Permissões diretas
   motoristaId?: string; // Preenchido se role === 'motorista'
   ativo: boolean;
   criadoEm: string;
@@ -94,6 +261,7 @@ export interface EnderecoInfo {
   numero: string;
   bairro: string;
   cidade: string;
+  estado?: string;
   cep: string;
   complemento?: string;
   latitude: number;
@@ -203,6 +371,8 @@ export interface Entrega {
   atualizadoEm: string;
   origem: 'manual' | 'integracao_loja' | 'qrcode';
   historico?: HistoricoStatus[];
+  customValues?: Record<string, any>;
+  qrCodeId?: string;
 }
 
 export interface ConfigGeral {
@@ -210,4 +380,14 @@ export interface ConfigGeral {
   logoUrl?: string;
   raioToleranciaEntregaMetros: number;
   formasPagamentoAtivas: FormaPagamento[];
+}
+
+export interface MasterAuditLog {
+  id: string;
+  usuarioId: string;
+  usuarioNome: string;
+  tipoAcao: 'criar_empresa' | 'editar_empresa' | 'bloquear_empresa' | 'suspender_empresa' | 'reativar_empresa' | 'excluir_empresa' | 'alterar_plano' | 'alterar_limites' | 'modo_suporte' | 'criar_perfil';
+  descricao: string;
+  detalhes?: any;
+  dataHora: string;
 }

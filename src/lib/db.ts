@@ -11,7 +11,7 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
-import { Empresa, Usuario, Motorista, Veiculo, Entrega, EntregaStatus, HistoricoStatus, UserRole, Cliente, RegistroAuditoria, StorageMetrics } from '../types';
+import { Empresa, Usuario, Motorista, Veiculo, Entrega, EntregaStatus, HistoricoStatus, UserRole, Cliente, RegistroAuditoria, StorageMetrics, MasterAuditLog, PerfilPermissoes, CompanyStatus } from '../types';
 
 // Simple hashing function for fallback password validation
 export function hashPassword(password: string): string {
@@ -29,6 +29,26 @@ export function generateId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).substring(2, 11)}`;
 }
 
+// Helper to recursively strip `undefined` fields for Firestore compatibility
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
+
 // JWT Token session key - ONLY key stored in LocalStorage
 const JWT_TOKEN_KEY = 'fast_jwt_token';
 
@@ -41,6 +61,8 @@ const inMemoryCache = {
   vehicles: {} as Record<string, Veiculo[]>,   // key: companyId
   clients: {} as Record<string, Cliente[]>,     // key: companyId
   auditLogs: {} as Record<string, RegistroAuditoria[]>, // key: companyId
+  masterAuditLogs: [] as MasterAuditLog[],
+  customRoles: [] as PerfilPermissoes[],
   activeSession: null as Usuario | null,
   listenersInitialized: false,
   subscribers: new Set<() => void>()
@@ -127,6 +149,18 @@ function setupRealtimeListeners() {
       auditByCompany[aud.companyId].push(aud);
     });
     inMemoryCache.auditLogs = auditByCompany;
+    notifySubscribers();
+  });
+
+  // Real-time Master Audit Logs
+  onSnapshot(collection(firestoreDb, 'master_auditoria'), (snapshot) => {
+    inMemoryCache.masterAuditLogs = snapshot.docs.map(doc => doc.data() as MasterAuditLog);
+    notifySubscribers();
+  });
+
+  // Real-time Custom Roles
+  onSnapshot(collection(firestoreDb, 'custom_roles'), (snapshot) => {
+    inMemoryCache.customRoles = snapshot.docs.map(doc => doc.data() as PerfilPermissoes);
     notifySubscribers();
   });
 }
@@ -311,6 +345,7 @@ export const Database = {
     return {
       id: companyId,
       nome: 'Empresa Logística',
+      status: 'ativa',
       criadoEm: new Date().toISOString()
     };
   },
@@ -328,7 +363,14 @@ export const Database = {
   },
 
   getUsers(companyId: string): Usuario[] {
+    if (!companyId || companyId === 'global' || companyId === 'master_global') {
+      return inMemoryCache.usuarios;
+    }
     return inMemoryCache.usuarios.filter(u => u.companyId === companyId);
+  },
+
+  getAllUsers(): Usuario[] {
+    return inMemoryCache.usuarios;
   },
 
   // Asynchronous central data sync from backend API / Firestore
@@ -410,7 +452,7 @@ export const Database = {
     }
 
     // Direct Firestore write as primary client storage
-    await setDoc(doc(firestoreDb, 'deliveries', delivery.id), { ...delivery, companyId });
+    await setDoc(doc(firestoreDb, 'deliveries', delivery.id), sanitizeForFirestore({ ...delivery, companyId }));
 
     // API POST request to Express backend
     const token = localStorage.getItem(JWT_TOKEN_KEY);
@@ -440,14 +482,14 @@ export const Database = {
 
     // Sync to Firestore without triggering duplicate POST loops
     deliveries.forEach(del => {
-      setDoc(doc(firestoreDb, 'deliveries', del.id), { ...del, companyId });
+      setDoc(doc(firestoreDb, 'deliveries', del.id), sanitizeForFirestore({ ...del, companyId }));
     });
   },
 
   saveDrivers(companyId: string, drivers: Motorista[]) {
     const token = localStorage.getItem(JWT_TOKEN_KEY);
     drivers.forEach(drv => {
-      setDoc(doc(firestoreDb, 'drivers', drv.id), { ...drv, companyId });
+      setDoc(doc(firestoreDb, 'drivers', drv.id), sanitizeForFirestore({ ...drv, companyId }));
       fetch(`/api/drivers/${companyId}`, {
         method: 'POST',
         headers: {
@@ -461,13 +503,13 @@ export const Database = {
 
   saveVehicles(companyId: string, vehicles: Veiculo[]) {
     vehicles.forEach(vec => {
-      setDoc(doc(firestoreDb, 'vehicles', vec.id), { ...vec, companyId });
+      setDoc(doc(firestoreDb, 'vehicles', vec.id), sanitizeForFirestore({ ...vec, companyId }));
     });
   },
 
   saveUsers(companyId: string, users: Usuario[]) {
     users.forEach(usr => {
-      setDoc(doc(firestoreDb, 'usuarios', usr.id), { ...usr, companyId });
+      setDoc(doc(firestoreDb, 'usuarios', usr.id), sanitizeForFirestore({ ...usr, companyId }));
     });
   },
 
@@ -543,6 +585,13 @@ export const Database = {
         return { success: false, error: data.error || 'Erro ao cadastrar usuário' };
       }
 
+      if (data.user) {
+        const idx = inMemoryCache.usuarios.findIndex(u => u.id === data.user.id);
+        if (idx >= 0) inMemoryCache.usuarios[idx] = data.user;
+        else inMemoryCache.usuarios.push(data.user);
+        notifySubscribers();
+      }
+
       return { success: true, user: data.user };
     } catch (err) {
       console.error('Error creating user via API, falling back to Firestore client SDK:', err);
@@ -572,6 +621,9 @@ export const Database = {
         await setDoc(doc(firestoreDb, 'drivers', motoristaId), { userId }, { merge: true });
       }
 
+      inMemoryCache.usuarios.push(newUser);
+      notifySubscribers();
+
       return { success: true, user: newUser };
     }
   },
@@ -581,9 +633,12 @@ export const Database = {
     const user = inMemoryCache.usuarios.find(u => u.id === userId);
     if (!user) return false;
     
+    user.ativo = ativo;
+    notifySubscribers();
+
     setDoc(doc(firestoreDb, 'usuarios', userId), { ativo }, { merge: true });
     
-    fetch(`/api/users/${user.companyId}/${userId}`, {
+    fetch(`/api/users/${user.companyId || 'global'}/${userId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -595,10 +650,207 @@ export const Database = {
     return true;
   },
 
+  async updateUser(companyId: string, userId: string, updates: Partial<Usuario> & { senha?: string }): Promise<{ success: boolean; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const payload: any = { ...updates };
+      if (updates.senha) {
+        payload.senhaHash = hashPassword(updates.senha);
+      }
+      const cached = inMemoryCache.usuarios.find(u => u.id === userId);
+      if (cached) {
+        Object.assign(cached, payload);
+        if (updates.senha) {
+          cached.senhaHash = payload.senhaHash;
+        }
+        notifySubscribers();
+      }
+
+      await setDoc(doc(firestoreDb, 'usuarios', userId), payload, { merge: true });
+      fetch(`/api/users/${companyId || 'global'}/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(updates)
+      }).catch(err => console.error('Error updating user via API:', err));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error updating user:', err);
+      return { success: false, error: err?.message || 'Erro ao atualizar usuário.' };
+    }
+  },
+
+  async deleteUser(companyId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      await deleteDoc(doc(firestoreDb, 'usuarios', userId)).catch(() => {});
+      
+      inMemoryCache.usuarios = inMemoryCache.usuarios.filter(u => u.id !== userId);
+      notifySubscribers();
+
+      fetch(`/api/users/${companyId || 'global'}/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      }).catch(err => console.warn('Error calling API deleteUser:', err));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error deleting user:', err);
+      return { success: false, error: err?.message || 'Erro ao excluir usuário.' };
+    }
+  },
+
+  async deleteUsersBatch(userList: { id: string; companyId: string }[]): Promise<{ success: boolean; count: number; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const idsToDelete = new Set(userList.map(u => u.id));
+      for (const u of userList) {
+        await deleteDoc(doc(firestoreDb, 'usuarios', u.id)).catch(() => {});
+        fetch(`/api/users/${u.companyId || 'global'}/${u.id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+        }).catch(() => {});
+      }
+
+      inMemoryCache.usuarios = inMemoryCache.usuarios.filter(u => !idsToDelete.has(u.id));
+      notifySubscribers();
+
+      return { success: true, count: userList.length };
+    } catch (err: any) {
+      console.error('Error batch deleting users:', err);
+      return { success: false, count: 0, error: err?.message || 'Erro ao excluir usuários em lote.' };
+    }
+  },
+
+  async updateUsersStatusBatch(userIds: string[], ativo: boolean): Promise<{ success: boolean }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    for (const id of userIds) {
+      const u = inMemoryCache.usuarios.find(x => x.id === id);
+      if (u) {
+        u.ativo = ativo;
+        setDoc(doc(firestoreDb, 'usuarios', id), { ativo }, { merge: true }).catch(() => {});
+        fetch(`/api/users/${u.companyId || 'global'}/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : ''
+          },
+          body: JSON.stringify({ ativo })
+        }).catch(() => {});
+      }
+    }
+    notifySubscribers();
+    return { success: true };
+  },
+
+  async updateUsersRoleBatch(userIds: string[], role: UserRole): Promise<{ success: boolean }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    for (const id of userIds) {
+      const u = inMemoryCache.usuarios.find(x => x.id === id);
+      if (u) {
+        u.role = role;
+        setDoc(doc(firestoreDb, 'usuarios', id), { role }, { merge: true }).catch(() => {});
+        fetch(`/api/users/${u.companyId || 'global'}/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : ''
+          },
+          body: JSON.stringify({ role })
+        }).catch(() => {});
+      }
+    }
+    notifySubscribers();
+    return { success: true };
+  },
+
+  async resetUsersPasswordBatch(userIds: string[], newPassword: string): Promise<{ success: boolean }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    const senhaHash = hashPassword(newPassword);
+    for (const id of userIds) {
+      const u = inMemoryCache.usuarios.find(x => x.id === id);
+      if (u) {
+        u.senhaHash = senhaHash;
+        setDoc(doc(firestoreDb, 'usuarios', id), { senhaHash }, { merge: true }).catch(() => {});
+        fetch(`/api/users/${u.companyId || 'global'}/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : ''
+          },
+          body: JSON.stringify({ senha: newPassword })
+        }).catch(() => {});
+      }
+    }
+    notifySubscribers();
+    return { success: true };
+  },
+
+  async updateDriver(companyId: string, driverId: string, updates: Partial<Motorista>): Promise<{ success: boolean; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      await setDoc(doc(firestoreDb, 'drivers', driverId), updates, { merge: true });
+      fetch(`/api/drivers/${companyId}/${driverId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(updates)
+      }).catch(err => console.error('Error updating driver via API:', err));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error updating driver:', err);
+      return { success: false, error: err?.message || 'Erro ao atualizar entregador.' };
+    }
+  },
+
+  async deleteDriver(companyId: string, driverId: string): Promise<{ success: boolean; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      await deleteDoc(doc(firestoreDb, 'drivers', driverId)).catch(() => {});
+      fetch(`/api/drivers/${companyId}/${driverId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      }).catch(err => console.warn('Error calling API deleteDriver:', err));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error deleting driver:', err);
+      return { success: false, error: err?.message || 'Erro ao excluir entregador.' };
+    }
+  },
+
+  async deleteVehicle(companyId: string, vehicleId: string): Promise<{ success: boolean; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      await deleteDoc(doc(firestoreDb, 'vehicles', vehicleId)).catch(() => {});
+      fetch(`/api/vehicles/${companyId}/${vehicleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      }).catch(err => console.warn('Error calling API deleteVehicle:', err));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error deleting vehicle:', err);
+      return { success: false, error: err?.message || 'Erro ao excluir veículo.' };
+    }
+  },
+
   async updateDelivery(id: string, updates: Partial<Entrega>): Promise<boolean> {
     const token = localStorage.getItem(JWT_TOKEN_KEY);
     try {
-      await setDoc(doc(firestoreDb, 'deliveries', id), updates, { merge: true });
+      await setDoc(doc(firestoreDb, 'deliveries', id), sanitizeForFirestore(updates), { merge: true });
       fetch(`/api/deliveries/${id}`, {
         method: 'PUT',
         headers: {
@@ -610,6 +862,64 @@ export const Database = {
       return true;
     } catch (err) {
       console.error('Error updating delivery:', err);
+      return false;
+    }
+  },
+
+  async saveDelivery(delivery: Entrega): Promise<boolean> {
+    try {
+      await setDoc(doc(firestoreDb, 'deliveries', delivery.id), sanitizeForFirestore(delivery), { merge: true });
+      return true;
+    } catch (err) {
+      console.error('Error saving delivery:', err);
+      return false;
+    }
+  },
+
+  async updateDeliveryStatus(id: string, status: any, usuarioNome?: string, motivo?: string): Promise<boolean> {
+    try {
+      const docRef = doc(firestoreDb, 'deliveries', id);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const currentData = snap.data() as Entrega;
+        const newHistoryItem = {
+          id: 'h_' + Date.now(),
+          statusAnterior: currentData.status,
+          statusNovo: status,
+          alteradoPor: usuarioNome || 'Sistema Offline',
+          alteradoEm: new Date().toISOString(),
+          motivo: motivo || `Status alterado para ${status}`
+        };
+        const updatedHistory = [...(currentData.historico || []), newHistoryItem];
+        await updateDoc(docRef, sanitizeForFirestore({
+          status,
+          historico: updatedHistory,
+          atualizadoEm: new Date().toISOString()
+        }));
+      } else {
+        await updateDoc(docRef, sanitizeForFirestore({
+          status,
+          atualizadoEm: new Date().toISOString()
+        }));
+      }
+      return true;
+    } catch (err) {
+      console.error('Error updating delivery status:', err);
+      return false;
+    }
+  },
+
+  async addComprovanteEntrega(id: string, comprovante: any): Promise<boolean> {
+    try {
+      const docRef = doc(firestoreDb, 'deliveries', id);
+      await updateDoc(docRef, sanitizeForFirestore({
+        comprovante,
+        status: 'entregue',
+        atualizadoEm: new Date().toISOString()
+      }));
+      return true;
+    } catch (err) {
+      console.error('Error adding comprovante:', err);
       return false;
     }
   },
@@ -666,7 +976,7 @@ export const Database = {
       criadoEm: clientData.criadoEm || new Date().toISOString()
     };
 
-    await setDoc(doc(firestoreDb, 'clientes', clientId), fullClient, { merge: true });
+    await setDoc(doc(firestoreDb, 'clientes', clientId), sanitizeForFirestore(fullClient), { merge: true });
 
     const token = localStorage.getItem(JWT_TOKEN_KEY);
     fetch(`/api/clients/${companyId}`, {
@@ -800,5 +1110,314 @@ export const Database = {
       espacoUtilizadoFormatted,
       percentualUso: Math.min(100, Math.max(1, Math.round((totalBytes / (50 * 1024 * 1024)) * 100)))
     };
+  },
+
+  // MASTER PANEL DATABASE METHODS
+  getCompanies(): Empresa[] {
+    return inMemoryCache.empresas || [];
+  },
+
+  async createCompanyMaster(companyData: Partial<Empresa> & { adminName: string; adminEmail: string; adminPassword: string }) {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const response = await fetch('/api/master/companies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(companyData)
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'Erro ao criar empresa' };
+      }
+
+      if (data.company) {
+        const idx = inMemoryCache.empresas.findIndex(e => e.id === data.company.id);
+        if (idx >= 0) inMemoryCache.empresas[idx] = data.company;
+        else inMemoryCache.empresas.unshift(data.company);
+      }
+      if (data.admin) {
+        const idxU = inMemoryCache.usuarios.findIndex(u => u.id === data.admin.id);
+        if (idxU >= 0) inMemoryCache.usuarios[idxU] = data.admin;
+        else inMemoryCache.usuarios.push(data.admin);
+      }
+      notifySubscribers();
+
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro de conexão' };
+    }
+  },
+
+  async updateCompanyMaster(companyId: string, updates: Partial<Empresa>) {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const comp = inMemoryCache.empresas.find(e => e.id === companyId);
+      if (comp) {
+        Object.assign(comp, updates);
+        notifySubscribers();
+      }
+
+      setDoc(doc(firestoreDb, 'empresas', companyId), updates, { merge: true }).catch(() => {});
+
+      const response = await fetch(`/api/master/companies/${companyId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(updates)
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'Erro ao atualizar empresa' };
+      }
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro de conexão' };
+    }
+  },
+
+  async deleteCompanyMaster(companyId: string) {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      // 1. Delete directly from Firestore client SDK
+      await deleteDoc(doc(firestoreDb, 'empresas', companyId)).catch(() => {});
+
+      // 2. Remove from local cache immediately and notify subscribers
+      inMemoryCache.empresas = inMemoryCache.empresas.filter(e => e.id !== companyId);
+      inMemoryCache.usuarios = inMemoryCache.usuarios.filter(u => u.companyId !== companyId);
+      notifySubscribers();
+
+      // 3. Call backend API endpoint to delete and clean up linked orphan records
+      const response = await fetch(`/api/master/companies/${companyId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || 'Erro ao excluir empresa' };
+      }
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro de conexão' };
+    }
+  },
+
+  async deleteCompaniesBatchMaster(companyIds: string[]): Promise<{ success: boolean; count: number; error?: string }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const idsSet = new Set(companyIds);
+
+      // 1. Delete from Firestore directly
+      for (const id of companyIds) {
+        await deleteDoc(doc(firestoreDb, 'empresas', id)).catch(() => {});
+        fetch(`/api/master/companies/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': token ? `Bearer ${token}` : '' }
+        }).catch(() => {});
+      }
+
+      // 2. Filter local inMemoryCache
+      inMemoryCache.empresas = inMemoryCache.empresas.filter(e => !idsSet.has(e.id));
+      inMemoryCache.usuarios = inMemoryCache.usuarios.filter(u => !u.companyId || !idsSet.has(u.companyId));
+      notifySubscribers();
+
+      return { success: true, count: companyIds.length };
+    } catch (err: any) {
+      console.error('Error batch deleting companies:', err);
+      return { success: false, count: 0, error: err?.message || 'Erro ao excluir empresas em lote.' };
+    }
+  },
+
+  async updateCompaniesStatusBatchMaster(companyIds: string[], status: CompanyStatus): Promise<{ success: boolean }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    for (const id of companyIds) {
+      const comp = inMemoryCache.empresas.find(e => e.id === id);
+      if (comp) {
+        comp.status = status;
+        setDoc(doc(firestoreDb, 'empresas', id), { status }, { merge: true }).catch(() => {});
+        fetch(`/api/master/companies/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : ''
+          },
+          body: JSON.stringify({ status })
+        }).catch(() => {});
+      }
+    }
+    notifySubscribers();
+    return { success: true };
+  },
+
+  async resetCompanyAdminPasswordBatchMaster(companyIds: string[], newPassword: string): Promise<{ success: boolean; count: number }> {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    const senhaHash = hashPassword(newPassword);
+    const idsSet = new Set(companyIds);
+    let count = 0;
+
+    const adminsToUpdate = inMemoryCache.usuarios.filter(u => u.companyId && idsSet.has(u.companyId) && (u.role === 'admin' || u.role === 'master'));
+    for (const admin of adminsToUpdate) {
+      admin.senhaHash = senhaHash;
+      count++;
+      setDoc(doc(firestoreDb, 'usuarios', admin.id), { senhaHash }, { merge: true }).catch(() => {});
+      fetch(`/api/users/${admin.companyId}/${admin.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({ senha: newPassword })
+      }).catch(() => {});
+    }
+
+    notifySubscribers();
+    return { success: true, count };
+  },
+
+  getMasterAuditLogs(): MasterAuditLog[] {
+    return inMemoryCache.masterAuditLogs || [];
+  },
+
+  getCustomRoles(companyId?: string): PerfilPermissoes[] {
+    if (!companyId) return inMemoryCache.customRoles || [];
+    return (inMemoryCache.customRoles || []).filter(r => r.companyId === 'global' || r.companyId === companyId);
+  },
+
+  async saveCustomRole(roleData: Partial<PerfilPermissoes>) {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      const response = await fetch('/api/master/custom-roles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify(roleData)
+      });
+      const data = await response.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro ao salvar perfil' };
+    }
+  },
+
+  async deleteCustomRole(roleId: string) {
+    const token = localStorage.getItem(JWT_TOKEN_KEY);
+    try {
+      await deleteDoc(doc(firestoreDb, 'custom_roles', roleId)).catch(() => {});
+      const response = await fetch(`/api/master/custom-roles/${roleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      const data = await response.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro ao excluir perfil' };
+    }
+  },
+
+  async updateCompanyFormConfig(companyId: string, deliveryFormConfig: any) {
+    try {
+      const comp = inMemoryCache.empresas.find(e => e.id === companyId);
+      if (comp) {
+        comp.deliveryFormConfig = deliveryFormConfig;
+        comp.atualizadoEm = new Date().toISOString();
+        notifySubscribers();
+      }
+
+      const docRef = doc(firestoreDb, 'empresas', companyId);
+      await setDoc(docRef, sanitizeForFirestore({
+        deliveryFormConfig,
+        atualizadoEm: new Date().toISOString()
+      }), { merge: true });
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error updating company form config:', err);
+      return { success: false, error: err?.message };
+    }
+  },
+
+  // --- SPRINT 18: GPS TRACKING & THEME CONFIG & OFFLINE SYNC ---
+
+  async updateDriverGpsLocation(driverState: any) {
+    try {
+      const docRef = doc(firestoreDb, 'driver_locations', driverState.driverId);
+      await setDoc(docRef, sanitizeForFirestore(driverState), { merge: true });
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getDriverGpsLocations(companyId: string) {
+    try {
+      const q = query(collection(firestoreDb, 'driver_locations'), where('companyId', '==', companyId));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => doc.data());
+    } catch (err: any) {
+      return [];
+    }
+  },
+
+  async appendDeliveryRoutePoint(deliveryId: string, point: any) {
+    try {
+      const docRef = doc(firestoreDb, 'route_histories', deliveryId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const existingData = docSnap.data();
+        const updatedPoints = [...(existingData.points || []), point];
+        await updateDoc(docRef, sanitizeForFirestore({
+          points: updatedPoints,
+          lastUpdated: new Date().toISOString()
+        }));
+      } else {
+        await setDoc(docRef, sanitizeForFirestore({
+          deliveryId,
+          companyId: point.companyId || '',
+          points: [point],
+          startedAt: point.timestamp,
+          lastUpdated: new Date().toISOString()
+        }));
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
+  async getDeliveryRouteHistory(deliveryId: string) {
+    try {
+      const docRef = doc(firestoreDb, 'route_histories', deliveryId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        return snap.data();
+      }
+      return null;
+    } catch (err: any) {
+      return null;
+    }
+  },
+
+  async updateCompanyThemeConfig(companyId: string, themeConfig: any) {
+    try {
+      const docRef = doc(firestoreDb, 'empresas', companyId);
+      await updateDoc(docRef, sanitizeForFirestore({
+        themeConfig,
+        atualizadoEm: new Date().toISOString()
+      }));
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error updating company theme:', err);
+      return { success: false, error: err?.message };
+    }
   }
 };

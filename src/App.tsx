@@ -5,20 +5,35 @@
 
 import React, { useState, useEffect } from 'react';
 import { Database, hashPassword } from './lib/db';
-import { Entrega, Motorista, Veiculo, Usuario, Empresa, Cliente, RegistroAuditoria } from './types';
+import { Entrega, Motorista, Veiculo, Usuario, Empresa, Cliente, RegistroAuditoria, UserRole } from './types';
 import OperatorPanel from './components/OperatorPanel';
 import DriverPanel from './components/DriverPanel';
-import { DiagnosticTestsModal } from './components/DiagnosticTests';
+import MasterPanel from './components/MasterPanel';
+import OfflineStatusBanner from './components/OfflineStatusBanner';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
+import FastGestaoLogo from './components/FastGestaoLogo';
+import SplashScreen from './components/SplashScreen';
+import { applyThemeMode, applyCompanyTheme, getStoredThemeMode, ThemeMode } from './lib/themeConfig';
 import { 
   Users, Shield, HelpCircle, LogOut, Key, Mail, Lock, Building, 
-  User, Phone, ChevronRight, CheckCircle, RefreshCw, AlertCircle, Eye, EyeOff
+  User, Phone, ChevronRight, CheckCircle, RefreshCw, AlertCircle, Eye, EyeOff, Sun, Moon
 } from 'lucide-react';
 
 export default function App() {
   // Authentication & Tenant States
   const [currentUser, setCurrentUser] = useState<Usuario | null>(null);
   const [currentCompany, setCurrentCompany] = useState<Empresa | null>(null);
-  const [showDiagnosticModal, setShowDiagnosticModal] = useState(false);
+  const [supportModeCompany, setSupportModeCompany] = useState<Empresa | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredThemeMode());
+
+  // Apply theme when company changes or mode changes
+  useEffect(() => {
+    if (currentCompany?.themeConfig) {
+      applyCompanyTheme(currentCompany.themeConfig);
+    } else {
+      applyThemeMode(themeMode);
+    }
+  }, [currentCompany, themeMode]);
   
   // Isolated Data States
   const [deliveries, setDeliveries] = useState<Entrega[]>([]);
@@ -95,6 +110,10 @@ export default function App() {
   }, [currentUser]);
 
   const loadCompanyData = (companyId: string) => {
+    const comp = Database.getCompany(companyId);
+    if (comp) {
+      setCurrentCompany({ ...comp });
+    }
     setDeliveries(Database.getDeliveries(companyId));
     setDrivers(Database.getDrivers(companyId));
     setVehicles(Database.getVehicles(companyId));
@@ -370,9 +389,10 @@ export default function App() {
     Database.saveVehicles(currentUser.companyId, updated);
   };
 
-  const handleAddUser = async (nome: string, email: string, role: 'operador' | 'motorista', motoristaId?: string) => {
+  const handleAddUser = async (nome: string, email: string, role: UserRole, motoristaId?: string, senhaInitial?: string) => {
     if (!currentUser || !currentCompany) return;
-    const res = await Database.createUser(currentUser.companyId, nome, email, '123456', role, motoristaId);
+    const initialPass = senhaInitial || '123456';
+    const res = await Database.createUser(currentUser.companyId, nome, email, initialPass, role, motoristaId);
     if (res.success) {
       setUsers(Database.getUsers(currentUser.companyId));
       setDrivers(Database.getDrivers(currentUser.companyId));
@@ -386,6 +406,16 @@ export default function App() {
     const success = Database.updateUserStatus(userId, ativo);
     if (success) {
       setUsers(Database.getUsers(currentUser.companyId));
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!currentUser || !currentCompany) return;
+    const res = await Database.deleteUser(currentUser.companyId, userId);
+    if (res.success) {
+      setUsers(prev => prev.filter(u => u.id !== userId));
+    } else {
+      alert(res.error || 'Erro ao excluir usuário.');
     }
   };
 
@@ -439,11 +469,8 @@ export default function App() {
 
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 md:p-8 relative z-10">
           <div className="flex flex-col items-center text-center mb-6">
-            <div className="w-12 h-12 bg-amber-500 text-slate-950 rounded-xl flex items-center justify-center font-black text-xl shadow-lg shadow-amber-500/20 mb-3">
-              F
-            </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">FastGestão Entregas</h1>
-            <p className="text-sm text-slate-400 mt-1">
+            <FastGestaoLogo size={150} className="mb-3" />
+            <p className="text-xs text-slate-400">
               {authMode === 'login' && 'Faça login para gerenciar sua frota e entregas'}
               {authMode === 'register_company' && 'Cadastre sua empresa e inicie do zero'}
               {authMode === 'recover' && 'Insira seu e-mail para recuperar seu acesso'}
@@ -517,138 +544,6 @@ export default function App() {
                 Entrar no Painel
                 <ChevronRight className="w-4 h-4" />
               </button>
-
-              <div className="relative my-6 flex items-center">
-                <div className="flex-1 border-t border-slate-800"></div>
-                <span className="px-3 text-xs text-slate-500 uppercase tracking-widest bg-slate-900">Novo por aqui?</span>
-                <div className="flex-1 border-t border-slate-800"></div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthError(null);
-                  setAuthSuccess(null);
-                  setAuthMode('register_company');
-                }}
-                className="w-full border border-slate-800 text-slate-300 hover:text-white py-2.5 rounded-xl font-bold text-sm bg-slate-950/40 hover:bg-slate-950 transition-colors flex items-center justify-center gap-1.5"
-              >
-                <Building className="w-4 h-4 text-slate-500" />
-                Cadastrar Nova Empresa
-              </button>
-
-              <div className="relative my-6 flex items-center">
-                <div className="flex-1 border-t border-slate-800"></div>
-                <span className="px-3 text-[10px] text-slate-500 uppercase tracking-widest bg-slate-900">Auditoria</span>
-                <div className="flex-1 border-t border-slate-800"></div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowDiagnosticModal(true)}
-                className="w-full border border-dashed border-amber-500/50 text-amber-400 hover:text-amber-300 py-2.5 rounded-xl font-bold text-xs bg-amber-950/20 hover:bg-amber-950/40 transition-colors flex items-center justify-center gap-1.5"
-              >
-                <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
-                🔬 Executar Auditoria de Consistência (Ponto 9)
-              </button>
-            </form>
-          )}
-
-          {authMode === 'register_company' && (
-            <form onSubmit={handleRegisterCompany} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Nome da Empresa *</label>
-                <div className="relative">
-                  <Building className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    required
-                    value={regCompanyName}
-                    onChange={(e) => setRegCompanyName(e.target.value)}
-                    placeholder="Ex: Transportes Rapidez Ltda"
-                    className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Nome Completo do Admin *</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    required
-                    value={regAdminName}
-                    onChange={(e) => setRegAdminName(e.target.value)}
-                    placeholder="Ex: João da Silva"
-                    className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">E-mail do Administrador *</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="email"
-                    required
-                    value={regEmail}
-                    onChange={(e) => setRegEmail(e.target.value)}
-                    placeholder="admin@empresa.com"
-                    className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Senha de Acesso *</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="password"
-                    required
-                    value={regPassword}
-                    onChange={(e) => setRegPassword(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
-                    className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Telefone/WhatsApp</label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                  <input
-                    type="text"
-                    value={regPhone}
-                    onChange={(e) => setRegPhone(e.target.value)}
-                    placeholder="(11) 99999-9999"
-                    className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-amber-500 text-slate-950 hover:bg-amber-400 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-amber-500/10 transition-colors flex items-center justify-center gap-1.5"
-              >
-                Concluir Cadastro
-                <ChevronRight className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthError(null);
-                  setAuthSuccess(null);
-                  setAuthMode('login');
-                }}
-                className="w-full text-xs text-slate-400 hover:text-white transition-colors py-1 block text-center"
-              >
-                Voltar para o Login
-              </button>
             </form>
           )}
 
@@ -699,56 +594,57 @@ export default function App() {
     );
   }
 
-  // APP INTERFACE FOR AUTHENTICATED USER
+  // IF MASTER USER LOGGED IN AND NOT IN SUPPORT MODE, SHOW MASTER PANEL DIRECTLY
+  if (currentUser.role === 'master' && !supportModeCompany) {
+    return (
+      <MasterPanel
+        currentUser={currentUser}
+        companies={Database.getCompanies()}
+        users={Database.getAllUsers()}
+        masterAuditLogs={Database.getMasterAuditLogs()}
+        customRoles={Database.getCustomRoles()}
+        onCreateCompany={async (data) => Database.createCompanyMaster(data)}
+        onUpdateCompany={async (id, updates) => Database.updateCompanyMaster(id, updates)}
+        onDeleteCompany={async (id) => Database.deleteCompanyMaster(id)}
+        onSaveCustomRole={async (role) => Database.saveCustomRole(role)}
+        onEnterSupportMode={(comp) => {
+          setSupportModeCompany(comp);
+          setCurrentCompany(comp);
+          loadCompanyData(comp.id);
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // APP INTERFACE FOR AUTHENTICATED STORE USERS OR MASTER IN SUPPORT MODE
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col font-sans text-slate-100">
       
-      {/* PROFESSIONAL LOGGED-IN HEADER */}
-      <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between shadow-md print:hidden">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-amber-500 text-slate-950 rounded-lg flex items-center justify-center font-black text-lg shadow-md shrink-0">
-            F
-          </div>
-          <div>
-            <h1 className="text-sm md:text-base font-bold text-white tracking-tight flex items-center gap-1.5">
-              {currentCompany.nome}
-              <span className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full font-medium">
-                Sessão Segura
-              </span>
-            </h1>
-            <p className="text-[11px] text-slate-400">
-              Ambiente Corporativo Isolado
-            </p>
-          </div>
-        </div>
+      {/* OFFLINE STATUS BANNER */}
+      <OfflineStatusBanner />
 
-        <div className="flex items-center gap-3">
-          {/* User badge and action */}
-          <div className="hidden sm:flex flex-col text-right">
-            <span className="text-xs font-semibold text-white">{currentUser.nome}</span>
-            <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">
-              {currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'operador' ? 'Operador' : 'Entregador'}
-            </span>
+      {/* SUPPORT MODE STICKY BANNER */}
+      {supportModeCompany && (
+        <div className="bg-amber-500 text-slate-950 px-6 py-2.5 text-xs font-bold flex items-center justify-between shadow-xl z-50 sticky top-0">
+          <div className="flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            <span>🛠️ MODO DE SUPORTE MASTER ATIVO — Visualizando Painel da Empresa: <strong>{supportModeCompany.nome}</strong></span>
           </div>
-
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setActiveProfileTab(!activeProfileTab)}
-              className={`p-2 rounded-xl text-slate-300 hover:text-white transition-all border ${activeProfileTab ? 'bg-slate-800 border-amber-500/50 text-amber-500' : 'bg-slate-950/40 border-slate-800 hover:bg-slate-800'}`}
-              title="Meu Perfil / Alterar Senha"
-            >
-              <User className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-xl bg-red-950/20 text-red-400 hover:text-red-300 hover:bg-red-950/40 border border-red-900/30 transition-all"
-              title="Sair do Sistema"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+          <button 
+            onClick={() => {
+              setSupportModeCompany(null);
+              if (currentUser?.companyId) {
+                const comp = Database.getCompany(currentUser.companyId);
+                if (comp) setCurrentCompany(comp);
+              }
+            }}
+            className="px-3 py-1 bg-slate-950 text-amber-400 hover:bg-slate-900 rounded-lg text-xs font-bold transition-colors shadow"
+          >
+            ← Voltar ao Painel Master
+          </button>
         </div>
-      </header>
+      )}
 
       {/* MY PROFILE DRAWER / BLOCK */}
       {activeProfileTab && (
@@ -866,10 +762,11 @@ export default function App() {
 
       {/* RENDER ACTIVE USER PANEL BASED ON ASSIGNED ROLE */}
       <div className="flex-1 overflow-hidden">
-        {currentUser.role === 'admin' || currentUser.role === 'operador' ? (
+        {currentUser.role !== 'entregador' && currentUser.role !== 'driver' && currentUser.role !== 'motorista' ? (
           <OperatorPanel
             currentUser={currentUser}
             company={currentCompany}
+            onUpdateCompany={(updated) => setCurrentCompany(updated)}
             deliveries={deliveries}
             drivers={drivers}
             vehicles={vehicles}
@@ -887,6 +784,7 @@ export default function App() {
             onDeleteVehicle={handleDeleteVehicle}
             onAddUser={handleAddUser}
             onUpdateUserStatus={handleUpdateUserStatus}
+            onDeleteUser={handleDeleteUser}
             onLogout={handleLogout}
           />
         ) : (
@@ -903,18 +801,8 @@ export default function App() {
         )}
       </div>
 
-      {showDiagnosticModal && (
-        <DiagnosticTestsModal 
-          onClose={() => setShowDiagnosticModal(false)}
-          onRefreshAllData={() => {
-            const sess = Database.getCurrentSession();
-            if (sess) {
-              loadCompanyData(sess.companyId);
-            }
-          }}
-        />
-      )}
-
+      {/* PWA INSTALL PROMPT */}
+      <PwaInstallPrompt />
     </div>
   );
 }

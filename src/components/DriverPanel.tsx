@@ -7,11 +7,15 @@ import React, { useState } from 'react';
 import { 
   Truck, MapPin, Phone, Clock, DollarSign, Package, Check, X, Navigation, 
   ChevronRight, Camera, FileText, AlertTriangle, RefreshCw, Smartphone, 
-  MapPinOff, Wifi, WifiOff, LogOut, FileCheck, HelpCircle
+  MapPinOff, Wifi, WifiOff, LogOut, FileCheck, HelpCircle, Shield, QrCode
 } from 'lucide-react';
 import { Entrega, Motorista, Veiculo, Usuario, EntregaStatus, ComprovanteInfo, HistoricoStatus } from '../types';
 import SignaturePad from './SignaturePad';
 import CameraCapture from './CameraCapture';
+import QrScannerModal from './QrScannerModal';
+import FastGestaoLogo from './FastGestaoLogo';
+import { startDriverGpsTracking, stopDriverGpsTracking } from '../lib/gpsTracker';
+import { OfflineStorage } from '../lib/offlineDb';
 
 interface DriverPanelProps {
   currentUser: Usuario;
@@ -49,6 +53,10 @@ export default function DriverPanel({
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
 
+  // Driver Tabs state: Em Rota | Pendentes | Problemas | Histórico
+  const [driverTab, setDriverTab] = useState<'em_rota' | 'pendentes' | 'problemas' | 'historico'>('em_rota');
+  const [showQrScanner, setShowQrScanner] = useState(false);
+
   // Resolve the active driver physical row using currentUser's motoristaId link, email, or name
   const currentDriver = 
     drivers.find(d => d.id === currentUser.motoristaId) ||
@@ -68,6 +76,21 @@ export default function DriverPanel({
       console.log("======================");
     }
   }, [currentUser, currentDriver]);
+
+  // Start real-time GPS tracking for active driver
+  React.useEffect(() => {
+    const driverId = currentUser.motoristaId || currentDriver?.id || currentUser.id;
+    const driverName = currentDriver?.nome || currentUser.nome;
+    const companyId = currentUser.companyId;
+
+    if (driverId && companyId) {
+      startDriverGpsTracking(driverId, driverName, companyId, selectedDelivery?.id);
+    }
+
+    return () => {
+      stopDriverGpsTracking();
+    };
+  }, [currentUser, currentDriver, selectedDelivery]);
 
   // Filter deliveries assigned to the active driver that are ready for driver or processed
   const driverDeliveries = React.useMemo(() => {
@@ -119,6 +142,21 @@ export default function DriverPanel({
       return 0;
     });
   }, [deliveries, currentUser, currentDriver]);
+
+  // Categorized lists for Driver view requirements (Sprint 16: Completed moves to Histórico)
+  const emRotaList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'em_rota'), [driverDeliveries]);
+  const pendentesList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'aguardando_motorista' || d.status === 'venda_realizada' || d.status === 'nf_emitida' || d.status === 'separacao'), [driverDeliveries]);
+  const problemasList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'nao_entregue'), [driverDeliveries]);
+  const historicoList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'entregue' || d.status === 'cancelada'), [driverDeliveries]);
+
+  const displayedList = React.useMemo(() => {
+    switch (driverTab) {
+      case 'em_rota': return emRotaList;
+      case 'pendentes': return pendentesList;
+      case 'problemas': return problemasList;
+      case 'historico': return historicoList;
+    }
+  }, [driverTab, emRotaList, pendentesList, problemasList, historicoList]);
 
   const formatCurrency = (val?: number | null) => {
     return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -301,6 +339,27 @@ export default function DriverPanel({
   };
 
   if (!currentDriver) {
+    const isDriverRole = currentUser.role === 'entregador' || currentUser.role === 'driver' || currentUser.role === 'motorista';
+    if (!isDriverRole) {
+      return (
+        <div className="bg-slate-900 min-h-full flex items-center justify-center p-4">
+          <div className="bg-slate-950 text-white p-6 rounded-2xl border border-slate-800 text-center flex flex-col items-center gap-4 max-w-sm w-full">
+            <Shield className="w-10 h-10 text-amber-500" />
+            <div>
+              <h1 className="font-bold text-base text-white">Redirecionando...</h1>
+              <p className="text-xs text-slate-400 mt-1">Seu perfil ({currentUser.role}) possui acesso administrativo.</p>
+            </div>
+            <button
+              onClick={onLogout}
+              className="w-full py-2.5 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors"
+            >
+              Voltar ao Login
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="bg-slate-900 min-h-full flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-sm w-full p-6 text-center flex flex-col gap-5">
@@ -331,9 +390,7 @@ export default function DriverPanel({
       {/* Top Header Strip (B2 Header) */}
       <div className="bg-slate-950 p-4 border-b border-slate-800 sticky top-0 z-40 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-slate-950 font-black font-display text-base shadow-xs">
-            F
-          </div>
+          <FastGestaoLogo size={32} />
           <div className="min-w-0">
             <h2 className="text-xs font-bold text-white truncate max-w-[150px]">{currentDriver.nome}</h2>
             {currentDriver.veiculoTipo ? (
@@ -347,6 +404,17 @@ export default function DriverPanel({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* QR Code Scanner Button */}
+          <button
+            type="button"
+            onClick={() => setShowQrScanner(true)}
+            className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-all flex items-center gap-1 text-[11px] font-bold"
+            title="Escanear QR Code da entrega"
+          >
+            <QrCode className="w-4 h-4" />
+            <span className="hidden sm:inline">QR Code</span>
+          </button>
+
           {/* Simulated Network Toggle (Offline testing) */}
           <button 
             type="button"
@@ -410,22 +478,70 @@ export default function DriverPanel({
             </div>
           )}
 
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">SUA ROTA DO DIA ({driverDeliveries.length})</span>
-            <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded-full font-semibold font-mono text-slate-300">ENTREGAS</span>
+          {/* SPRINT 16 REQUIREMENT 7: TAB BAR (Em Rota, Pendentes, Problemas, Histórico) */}
+          <div className="grid grid-cols-4 gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 mb-4 text-[11px]">
+            <button
+              onClick={() => setDriverTab('em_rota')}
+              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
+                driverTab === 'em_rota' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Em Rota</span>
+              <span className="text-[10px] opacity-80">({emRotaList.length})</span>
+            </button>
+
+            <button
+              onClick={() => setDriverTab('pendentes')}
+              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
+                driverTab === 'pendentes' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Pendentes</span>
+              <span className="text-[10px] opacity-80">({pendentesList.length})</span>
+            </button>
+
+            <button
+              onClick={() => setDriverTab('problemas')}
+              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
+                driverTab === 'problemas' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Problemas</span>
+              <span className="text-[10px] opacity-80">({problemasList.length})</span>
+            </button>
+
+            <button
+              onClick={() => setDriverTab('historico')}
+              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
+                driverTab === 'historico' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Histórico</span>
+              <span className="text-[10px] opacity-80">({historicoList.length})</span>
+            </button>
           </div>
 
-          {driverDeliveries.length === 0 ? (
+          {displayedList.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8 gap-3 my-auto">
               <div className="p-4 bg-slate-800 text-slate-500 rounded-full">
                 <Truck className="w-10 h-10" />
               </div>
-              <h3 className="font-display font-semibold text-sm text-slate-200">Sem entregas designadas</h3>
-              <p className="text-xs text-slate-400 max-w-xs leading-relaxed">Não há entregas na situação de "Aguardando Motorista" destinadas à sua rota neste momento.</p>
+              <h3 className="font-display font-semibold text-sm text-slate-200">
+                {driverTab === 'em_rota' ? 'Nenhuma entrega em rota' :
+                 driverTab === 'pendentes' ? 'Nenhuma entrega pendente' :
+                 driverTab === 'problemas' ? 'Nenhuma ocorrência registrada' :
+                 'Histórico de entregas vazio'}
+              </h3>
+              <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+                {driverTab === 'em_rota' ? 'Selecione uma entrega na aba Pendentes para iniciar a rota.' :
+                 driverTab === 'pendentes' ? 'Não há entregas aguardando na sua fila de entregas.' :
+                 driverTab === 'problemas' ? 'Nenhuma entrega com problema de entrega registrado.' :
+                 'Entregas concluídas e finalizadas aparecerão automaticamente neste histórico.'}
+              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {driverDeliveries.map((delivery) => {
+              {displayedList.map((delivery) => {
                 const isCollectOnDelivery = delivery.statusPagamento === 'receber_na_entrega';
                 
                 return (
@@ -806,6 +922,25 @@ export default function DriverPanel({
             </button>
           </div>
         </div>
+      )}
+
+      {/* QR SCANNER MODAL FOR DRIVER */}
+      {showQrScanner && (
+        <QrScannerModal
+          deliveries={driverDeliveries}
+          onSelectDelivery={(del) => {
+            setSelectedDelivery(del);
+            setCurrentScreen('detail');
+          }}
+          onConfirmDeliveryByQr={(deliveryId) => {
+            const target = driverDeliveries.find(d => d.id === deliveryId);
+            if (target) {
+              setSelectedDelivery(target);
+              handleInitiateProof();
+            }
+          }}
+          onClose={() => setShowQrScanner(false)}
+        />
       )}
 
     </div>

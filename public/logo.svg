@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 360" width="100%" height="100%">
+  <defs>
+    <linearGradient id="gBlueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00A3FF" />
+      <stop offset="100%" stop-color="#0066FF" />
+    </linearGradient>
+  </defs>
+
+  <g id="official-emblem" transform="translate(10, -10)">
+    <!-- SPEED LINES LEFT -->
+    <rect x="70" y="120" width="80" height="12" rx="6" fill="#00C8FF" />
+    <rect x="95" y="145" width="60" height="10" rx="5" fill="#38BDF8" opacity="0.95" />
+    <rect x="50" y="170" width="110" height="14" rx="7" fill="#0080FF" />
+    <rect x="105" y="195" width="50" height="10" rx="5" fill="#00C8FF" />
+    <rect x="75" y="218" width="70" height="12" rx="6" fill="#7DD3FC" opacity="0.8" />
+
+    <!-- STYLIZED F OUTLINE/SHAPE -->
+    <path d="M190 80 L330 80 L310 135 L245 135 L235 180 L295 180 L280 230 L220 230 L180 350 L125 350 Z" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5" />
+
+    <!-- STYLIZED G CURVE -->
+    <path d="M335 145 C270 145 220 190 220 260 C220 330 270 370 345 370 L350 370 C410 370 440 340 440 280 L320 280 L320 230 L445 230 C448 250 450 270 450 290 C450 370 390 425 320 425 C230 425 165 360 165 260 C165 160 240 90 345 90 C385 90 425 105 450 130 L410 175 C390 155 365 145 335 145 Z" fill="url(#gBlueGrad)" />
+
+    <!-- INTEGRATED DELIVERY TRUCK WITH SPEED LINES -->
+    <g transform="translate(325, 230) scale(0.85)">
+      <line x1="-22" y1="18" x2="-6" y2="18" stroke="#00C8FF" stroke-width="4" stroke-linecap="round" />
+      <line x1="-16" y1="28" x2="-6" y2="28" stroke="#00C8FF" stroke-width="4" stroke-linecap="round" />
+      <line x1="-28" y1="38" x2="-6" y2="38" stroke="#00C8FF" stroke-width="4" stroke-linecap="round" />
+
+      <path d="M0 10 L30 10 L45 28 L60 28 L60 48 L0 48 Z" fill="#0066FF" />
+      <circle cx="15" cy="48" r="7" fill="#FFFFFF" stroke="#0066FF" stroke-width="2.5" />
+      <circle cx="45" cy="48" r="7" fill="#FFFFFF" stroke="#0066FF" stroke-width="2.5" />
+      <path d="M32 15 L42 28 L32 28 Z" fill="#FFFFFF" />
+    </g>
+  </g>
+</svg>
