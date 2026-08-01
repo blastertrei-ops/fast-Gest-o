@@ -87,6 +87,25 @@ export default function OperatorPanel({
   const [dateFilter, setDateFilter] = useState<string>(new Date().toISOString().split('T')[0]);
   const [dateViewMode, setDateViewMode] = useState<'hoje' | 'data_selecionada' | 'agendadas' | 'todas'>('hoje');
 
+  // Real-time monitoring hook: subscribe to Database changes to ensure immediate dashboard update without F5 refresh
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    const unsubscribe = Database.subscribe(() => {
+      setTick(prev => prev + 1);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Sync selectedDelivery details with fresh delivery object whenever deliveries prop updates
+  React.useEffect(() => {
+    if (selectedDelivery) {
+      const fresh = deliveries.find(d => d.id === selectedDelivery.id);
+      if (fresh) {
+        setSelectedDelivery(fresh);
+      }
+    }
+  }, [deliveries]);
+
   // Form Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [isSubmittingDelivery, setIsSubmittingDelivery] = useState(false);
@@ -1473,9 +1492,15 @@ export default function OperatorPanel({
 
                             <div className="bg-slate-950/40 p-2.5 rounded-lg border border-slate-850 font-mono text-[10px] space-y-1 text-slate-400">
                               <p><span className="text-white">Recebedor:</span> {selectedDelivery.comprovante?.recebedorNome || selectedDelivery.cliente.nome}</p>
+                              {selectedDelivery.comprovante?.documentoRecebedor && (
+                                <p><span className="text-white">Documento:</span> {selectedDelivery.comprovante.documentoRecebedor}</p>
+                              )}
                               <p><span className="text-white">Data/Hora:</span> {formatDateTime(selectedDelivery.comprovante?.dataHoraEntrega)}</p>
                               {selectedDelivery.comprovante?.latitudeEntrega != null && (
                                 <p><span className="text-white">GPS:</span> {Number(selectedDelivery.comprovante.latitudeEntrega).toFixed(6)}, {Number(selectedDelivery.comprovante.longitudeEntrega || 0).toFixed(6)}</p>
+                              )}
+                              {selectedDelivery.comprovante?.observacaoEntrega && (
+                                <p className="text-amber-400 font-sans italic mt-1"><span className="text-white font-mono not-italic">Obs Entregador:</span> "{selectedDelivery.comprovante.observacaoEntrega}"</p>
                               )}
                             </div>
 

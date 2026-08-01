@@ -114,12 +114,12 @@ export default function App() {
     if (comp) {
       setCurrentCompany({ ...comp });
     }
-    setDeliveries(Database.getDeliveries(companyId));
-    setDrivers(Database.getDrivers(companyId));
-    setVehicles(Database.getVehicles(companyId));
-    setUsers(Database.getUsers(companyId));
-    setClients(Database.getClients(companyId));
-    setAuditLogs(Database.getAuditLogs(companyId));
+    setDeliveries([...Database.getDeliveries(companyId)]);
+    setDrivers([...Database.getDrivers(companyId)]);
+    setVehicles([...Database.getVehicles(companyId)]);
+    setUsers([...Database.getUsers(companyId)]);
+    setClients([...Database.getClients(companyId)]);
+    setAuditLogs([...Database.getAuditLogs(companyId)]);
   };
 
   const handleLogin = async (e: React.FormEvent) => {

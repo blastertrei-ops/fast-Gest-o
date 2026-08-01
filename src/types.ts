@@ -276,6 +276,8 @@ export interface ComprovanteInfo {
   latitudeEntrega?: number;
   longitudeEntrega?: number;
   recebedorNome?: string;
+  documentoRecebedor?: string; // RG, CPF ou documento do recebedor
+  observacaoEntrega?: string; // Observação informada na finalização
   entregadorNome?: string;
   pdfUrl?: string;
 }

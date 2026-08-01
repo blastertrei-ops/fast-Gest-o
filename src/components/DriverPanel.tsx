@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Truck, MapPin, Phone, Clock, DollarSign, Package, Check, X, Navigation, 
-  ChevronRight, Camera, FileText, AlertTriangle, RefreshCw, Smartphone, 
-  MapPinOff, Wifi, WifiOff, LogOut, FileCheck, HelpCircle, Shield, QrCode
+  ChevronRight, Camera, FileText, AlertTriangle, RefreshCw, MapPinOff, 
+  Wifi, WifiOff, LogOut, FileCheck, Shield, QrCode, Search, UserCheck, Calendar
 } from 'lucide-react';
 import { Entrega, Motorista, Veiculo, Usuario, EntregaStatus, ComprovanteInfo, HistoricoStatus } from '../types';
 import SignaturePad from './SignaturePad';
@@ -15,7 +15,6 @@ import CameraCapture from './CameraCapture';
 import QrScannerModal from './QrScannerModal';
 import FastGestaoLogo from './FastGestaoLogo';
 import { startDriverGpsTracking, stopDriverGpsTracking } from '../lib/gpsTracker';
-import { OfflineStorage } from '../lib/offlineDb';
 
 interface DriverPanelProps {
   currentUser: Usuario;
@@ -38,8 +37,10 @@ export default function DriverPanel({
   const [currentScreen, setCurrentScreen] = useState<'list' | 'detail' | 'confirm' | 'fail'>('list');
   const [selectedDelivery, setSelectedDelivery] = useState<Entrega | null>(null);
 
-  // Delivery confirmation inputs (Signature, Photo & Recebedor)
+  // Delivery confirmation inputs (Signature, Photo, Recebedor, Documento & Observação)
   const [recebedorNome, setRecebedorNome] = useState<string>('');
+  const [documentoRecebedor, setDocumentoRecebedor] = useState<string>('');
+  const [observacaoEntrega, setObservacaoEntrega] = useState<string>('');
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [isCapturingGPS, setIsCapturingGPS] = useState(false);
@@ -49,12 +50,13 @@ export default function DriverPanel({
   const [failReason, setFailReason] = useState<string>('Cliente ausente');
   const [failDetails, setFailDetails] = useState<string>('');
 
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
   // Simulated Offline State
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
 
-  // Driver Tabs state: Em Rota | Pendentes | Problemas | Histórico
-  const [driverTab, setDriverTab] = useState<'em_rota' | 'pendentes' | 'problemas' | 'historico'>('em_rota');
   const [showQrScanner, setShowQrScanner] = useState(false);
 
   // Resolve the active driver physical row using currentUser's motoristaId link, email, or name
@@ -64,21 +66,19 @@ export default function DriverPanel({
     drivers.find(d => d.nome && currentUser.nome && d.nome.toLowerCase() === currentUser.nome.toLowerCase());
 
   // Log active logged-in driver user information on mount and session updates
-  React.useEffect(() => {
+  useEffect(() => {
     if (currentUser) {
-      console.log("=== USUÁRIO LOGADO ===");
+      console.log("=== PAINEL DO ENTREGADOR (SPRINT 18 - MINHAS ENTREGAS) ===");
       console.log("currentUser.id:", currentUser.id);
       console.log("currentUser.nome:", currentUser.nome);
       console.log("currentUser.motoristaId:", currentUser.motoristaId);
-      console.log("empresaId:", currentUser.companyId);
-      console.log("perfil:", currentUser.role);
       console.log("currentDriver ID:", currentDriver?.id || "Nenhum");
-      console.log("======================");
+      console.log("=========================================================");
     }
   }, [currentUser, currentDriver]);
 
   // Start real-time GPS tracking for active driver
-  React.useEffect(() => {
+  useEffect(() => {
     const driverId = currentUser.motoristaId || currentDriver?.id || currentUser.id;
     const driverName = currentDriver?.nome || currentUser.nome;
     const companyId = currentUser.companyId;
@@ -92,71 +92,47 @@ export default function DriverPanel({
     };
   }, [currentUser, currentDriver, selectedDelivery]);
 
-  // Filter deliveries assigned to the active driver that are ready for driver or processed
-  const driverDeliveries = React.useMemo(() => {
+  // Filter ONLY active deliveries assigned to the driver (excludes completed 'entregue', 'cancelada', 'nao_entregue')
+  const driverDeliveries = useMemo(() => {
     if (!currentUser || !currentUser.id) return [];
 
     const activeDriverId = currentUser.motoristaId || currentDriver?.id;
     const activeDriverName = currentDriver?.nome || currentUser.nome;
 
-    console.log("=== ANTES DE FILTRAR AS ENTREGAS ===");
-    console.log("Todas as entregas encontradas:", deliveries);
-    console.log("Active Driver ID:", activeDriverId, "| User ID:", currentUser.id);
-    console.log("====================================");
-
-    console.log("=== DURANTE O FILTRO ===");
-    const filtered = deliveries.filter(d => {
+    return deliveries.filter(d => {
       const isAssigned = 
         (d.entregadorId && d.entregadorId === currentUser.id) || 
         (activeDriverId && d.motoristaId && d.motoristaId === activeDriverId) ||
         (d.entregadorNome && activeDriverName && d.entregadorNome.toLowerCase() === activeDriverName.toLowerCase());
       
-      const isValidStatus = d.status !== 'cancelada';
-      const isMatch = isAssigned && isValidStatus;
+      // SPRINT 18 RULE: Only active deliveries appear in "Minhas Entregas"!
+      // Completed, canceled, or failed deliveries automatically disappear.
+      const isActive = d.status !== 'entregue' && d.status !== 'cancelada' && d.status !== 'nao_entregue';
       
-      console.log(`Entrega NF: ${d.numeroNF} (ID: ${d.id})`);
-      console.log(`  entregadorId = ${d.entregadorId || 'undefined'}`);
-      console.log(`  motoristaId = ${d.motoristaId || 'undefined'}`);
-      console.log(`  currentUser.id = ${currentUser.id}`);
-      console.log(`  activeDriverId = ${activeDriverId || 'undefined'}`);
-      console.log(`  status = ${d.status}`);
-      console.log(`  Resultado = ${isMatch ? 'TRUE' : 'FALSE'}`);
-      
-      return isMatch;
-    });
-    console.log("========================");
+      if (!isAssigned || !isActive) return false;
 
-    return filtered.sort((a, b) => {
-      // Active "em_rota" always at the top
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesQ = 
+          (d.numeroNF || '').toLowerCase().includes(q) ||
+          (d.cliente?.nome || '').toLowerCase().includes(q) ||
+          (d.endereco?.ruaNumero || '').toLowerCase().includes(q) ||
+          (d.endereco?.bairro || '').toLowerCase().includes(q);
+        if (!matchesQ) return false;
+      }
+
+      return true;
+    }).sort((a, b) => {
+      // 'em_rota' stays at top
       if (a.status === 'em_rota' && b.status !== 'em_rota') return -1;
       if (b.status === 'em_rota' && a.status !== 'em_rota') return 1;
       
-      // Then remaining "aguardando_motorista"
-      if (a.status === 'aguardando_motorista' && b.status !== 'aguardando_motorista') return -1;
-      if (b.status === 'aguardando_motorista' && a.status !== 'aguardando_motorista') return 1;
-
-      // Then by order index if exists
       if (a.ordemRota !== undefined && b.ordemRota !== undefined) {
         return a.ordemRota - b.ordemRota;
       }
       return 0;
     });
-  }, [deliveries, currentUser, currentDriver]);
-
-  // Categorized lists for Driver view requirements (Sprint 16: Completed moves to Histórico)
-  const emRotaList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'em_rota'), [driverDeliveries]);
-  const pendentesList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'aguardando_motorista' || d.status === 'venda_realizada' || d.status === 'nf_emitida' || d.status === 'separacao'), [driverDeliveries]);
-  const problemasList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'nao_entregue'), [driverDeliveries]);
-  const historicoList = React.useMemo(() => driverDeliveries.filter(d => d.status === 'entregue' || d.status === 'cancelada'), [driverDeliveries]);
-
-  const displayedList = React.useMemo(() => {
-    switch (driverTab) {
-      case 'em_rota': return emRotaList;
-      case 'pendentes': return pendentesList;
-      case 'problemas': return problemasList;
-      case 'historico': return historicoList;
-    }
-  }, [driverTab, emRotaList, pendentesList, problemasList, historicoList]);
+  }, [deliveries, currentUser, currentDriver, searchQuery]);
 
   const formatCurrency = (val?: number | null) => {
     return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -167,29 +143,36 @@ export default function DriverPanel({
     setCurrentScreen('detail');
   };
 
-  // 1. ACTION: INICIAR ENTREGA (B3)
-  const handleStartDelivery = () => {
-    if (!selectedDelivery || !currentDriver) return;
+  // 1. ACTION: INICIAR ROTA
+  const handleStartDelivery = (delivery?: Entrega, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const target = delivery || selectedDelivery;
+    if (!target || !currentDriver) return;
+
+    const nowIso = new Date().toISOString();
 
     const historyItem: HistoricoStatus = {
       id: 'h_' + Date.now(),
-      statusAnterior: selectedDelivery.status,
+      statusAnterior: target.status,
       statusNovo: 'em_rota',
       alteradoPor: currentDriver.nome,
-      alteradoEm: new Date().toISOString()
+      alteradoEm: nowIso,
+      motivo: `Rota de entrega iniciada pelo entregador ${currentDriver.nome}.`
     };
 
     const updates: Partial<Entrega> = {
       status: 'em_rota',
-      iniciadoEm: new Date().toISOString(),
-      atualizadoEm: new Date().toISOString(),
-      historico: [...(selectedDelivery.historico || []), historyItem]
+      iniciadoEm: nowIso,
+      atualizadoEm: nowIso,
+      historico: [...(target.historico || []), historyItem]
     };
 
-    onUpdateDelivery(selectedDelivery.id, updates);
-    setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
+    onUpdateDelivery(target.id, updates);
+
+    if (selectedDelivery && selectedDelivery.id === target.id) {
+      setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
+    }
     
-    // Simulate connection update
     if (!isOnline) {
       setPendingSyncCount(prev => prev + 1);
     }
@@ -205,15 +188,22 @@ export default function DriverPanel({
     window.open(mapsUrl, '_blank');
   };
 
-  // 3. ACTION: INITIATE PROOF SCREEN (B5)
-  const handleInitiateProof = () => {
+  // 3. ACTION: INITIATE SINGLE-SCREEN PROOF MODAL
+  const handleInitiateProof = (delivery?: Entrega, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const target = delivery || selectedDelivery;
+    if (!target) return;
+
+    setSelectedDelivery(target);
+    setRecebedorNome(target.cliente.nome || '');
+    setDocumentoRecebedor(target.cliente.documento || '');
+    setObservacaoEntrega('');
     setSignatureDataUrl(null);
     setPhotoDataUrl(null);
     setGpsCoordinates(null);
-    setRecebedorNome(selectedDelivery?.cliente.nome || '');
     setCurrentScreen('confirm');
     
-    // Capture GPS Geolocation
+    // Auto Capture GPS Geolocation
     setIsCapturingGPS(true);
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -225,29 +215,25 @@ export default function DriverPanel({
           setIsCapturingGPS(false);
         },
         (error) => {
-          console.warn('Geolocation failed, falling back to mock coordinates:', error);
-          setTimeout(() => {
-            if (selectedDelivery) {
-              setGpsCoordinates({
-                lat: selectedDelivery.endereco.latitude + 0.0001,
-                lng: selectedDelivery.endereco.longitude - 0.0001
-              });
-            }
-            setIsCapturingGPS(false);
-          }, 800);
+          console.warn('Geolocation failed, fallback to delivery coordinates:', error);
+          setGpsCoordinates({
+            lat: target.endereco.latitude + 0.0001,
+            lng: target.endereco.longitude - 0.0001
+          });
+          setIsCapturingGPS(false);
         },
         { enableHighAccuracy: true, timeout: 5000 }
       );
     } else {
       setGpsCoordinates({
-        lat: selectedDelivery?.endereco.latitude || -23.55,
-        lng: selectedDelivery?.endereco.longitude || -46.63
+        lat: target.endereco.latitude || -23.55,
+        lng: target.endereco.longitude || -46.63
       });
       setIsCapturingGPS(false);
     }
   };
 
-  // 4. ACTION: CONFIRM DELIVERED WITH RECEBEDOR, SIGNATURE, PHOTO & GPS
+  // 4. ACTION: CONFIRM DELIVERED WITH ALL 7 REQUIRED PROOF FIELDS AT ONCE
   const handleConfirmDelivered = () => {
     if (!selectedDelivery || !currentDriver) return;
     if (!recebedorNome.trim()) {
@@ -261,14 +247,17 @@ export default function DriverPanel({
 
     const finalLat = gpsCoordinates?.lat || selectedDelivery.endereco.latitude + 0.00015;
     const finalLng = gpsCoordinates?.lng || selectedDelivery.endereco.longitude - 0.00012;
+    const nowIso = new Date().toISOString();
 
     const comprovante: ComprovanteInfo = {
       assinaturaUrl: signatureDataUrl,
-      fotoProdutoUrl: photoDataUrl || 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400', // Default mock parcel if they didn't take a photo
-      dataHoraEntrega: new Date().toISOString(),
+      fotoProdutoUrl: photoDataUrl || undefined,
+      dataHoraEntrega: nowIso,
       latitudeEntrega: finalLat,
       longitudeEntrega: finalLng,
       recebedorNome: recebedorNome.trim(),
+      documentoRecebedor: documentoRecebedor.trim() || undefined,
+      observacaoEntrega: observacaoEntrega.trim() || undefined,
       entregadorNome: currentDriver.nome
     };
 
@@ -277,45 +266,54 @@ export default function DriverPanel({
       statusAnterior: selectedDelivery.status,
       statusNovo: 'entregue',
       alteradoPor: currentDriver.nome,
-      alteradoEm: new Date().toISOString()
+      alteradoEm: nowIso,
+      motivo: `Entrega finalizada por ${currentDriver.nome}. Recebedor: ${recebedorNome.trim()}${documentoRecebedor.trim() ? ' (Doc: ' + documentoRecebedor.trim() + ')' : ''}. Assinatura, Foto e GPS registrados.`
     };
 
     const updates: Partial<Entrega> = {
       status: 'entregue',
       statusPagamento: 'pago', // Automatically marked as paid once successfully delivered
       comprovante,
-      atualizadoEm: new Date().toISOString(),
+      atualizadoEm: nowIso,
       historico: [...(selectedDelivery.historico || []), historyItem]
     };
 
+    // Database persistence before UI state update
     onUpdateDelivery(selectedDelivery.id, updates);
     
     if (!isOnline) {
       setPendingSyncCount(prev => prev + 1);
     }
 
-    // Go back to deliveries list
+    // Reset inputs and return to list. The delivery will automatically disappear from driver view!
+    setRecebedorNome('');
+    setDocumentoRecebedor('');
+    setObservacaoEntrega('');
+    setSignatureDataUrl(null);
+    setPhotoDataUrl(null);
     setSelectedDelivery(null);
     setCurrentScreen('list');
   };
 
-  // 5. ACTION: RECORD FAIL ATTEMPT (B6)
+  // 5. ACTION: RECORD FAIL ATTEMPT
   const handleConfirmFailed = () => {
     if (!selectedDelivery || !currentDriver) return;
+
+    const nowIso = new Date().toISOString();
 
     const historyItem: HistoricoStatus = {
       id: 'h_' + Date.now(),
       statusAnterior: selectedDelivery.status,
       statusNovo: 'nao_entregue',
       alteradoPor: currentDriver.nome,
-      alteradoEm: new Date().toISOString(),
+      alteradoEm: nowIso,
       motivo: `${failReason} - ${failDetails}`
     };
 
     const updates: Partial<Entrega> = {
       status: 'nao_entregue',
       motivoNaoEntregue: `${failReason}${failDetails ? ': ' + failDetails : ''}`,
-      atualizadoEm: new Date().toISOString(),
+      atualizadoEm: nowIso,
       historico: [...(selectedDelivery.historico || []), historyItem]
     };
 
@@ -387,7 +385,7 @@ export default function DriverPanel({
   return (
     <div className="min-h-full bg-slate-900 text-slate-100 flex flex-col max-w-md mx-auto relative shadow-2xl" id="driver-app-frame">
       
-      {/* Top Header Strip (B2 Header) */}
+      {/* Top Header Strip */}
       <div className="bg-slate-950 p-4 border-b border-slate-800 sticky top-0 z-40 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <FastGestaoLogo size={32} />
@@ -415,7 +413,7 @@ export default function DriverPanel({
             <span className="hidden sm:inline">QR Code</span>
           </button>
 
-          {/* Simulated Network Toggle (Offline testing) */}
+          {/* Network Toggle */}
           <button 
             type="button"
             onClick={() => {
@@ -451,12 +449,11 @@ export default function DriverPanel({
         </div>
       </div>
 
-      {/* Main Screen Views Routing */}
-
-      {/* SCREEN 1: DELIVERIES LIST (B2) */}
+      {/* SPRINT 18: TELA ÚNICA - MINHAS ENTREGAS */}
       {currentScreen === 'list' && (
         <div className="flex-1 flex flex-col p-4 overflow-y-auto">
-          {/* Offline Warning banner if offline */}
+          
+          {/* Offline Warning banner */}
           {!isOnline && (
             <div className="mb-4 p-3 bg-amber-950/40 text-amber-400 rounded-xl border border-amber-800 text-xs flex flex-col gap-1.5">
               <div className="flex items-center gap-1.5 font-bold">
@@ -464,7 +461,7 @@ export default function DriverPanel({
                 Modo Offline Ativo
               </div>
               <p className="text-[11px] text-slate-300 leading-normal">
-                Suas entregas serão salvas no celular. Clique no botão de sync ou no banner para reenviar quando houver conexão.
+                Suas entregas serão salvas no celular e reenviadas automaticamente ao conectar.
               </p>
               {pendingSyncCount > 0 && (
                 <button
@@ -478,140 +475,129 @@ export default function DriverPanel({
             </div>
           )}
 
-          {/* SPRINT 16 REQUIREMENT 7: TAB BAR (Em Rota, Pendentes, Problemas, Histórico) */}
-          <div className="grid grid-cols-4 gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 mb-4 text-[11px]">
-            <button
-              onClick={() => setDriverTab('em_rota')}
-              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
-                driverTab === 'em_rota' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>Em Rota</span>
-              <span className="text-[10px] opacity-80">({emRotaList.length})</span>
-            </button>
+          {/* Header Banner - Minhas Entregas */}
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 mb-4 shadow-lg flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-extrabold text-white flex items-center gap-2">
+                <Truck className="w-5 h-5 text-amber-500" />
+                Minhas Entregas
+              </h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Entregas ativas em andamento para hoje
+              </p>
+            </div>
 
-            <button
-              onClick={() => setDriverTab('pendentes')}
-              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
-                driverTab === 'pendentes' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>Pendentes</span>
-              <span className="text-[10px] opacity-80">({pendentesList.length})</span>
-            </button>
-
-            <button
-              onClick={() => setDriverTab('problemas')}
-              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
-                driverTab === 'problemas' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>Problemas</span>
-              <span className="text-[10px] opacity-80">({problemasList.length})</span>
-            </button>
-
-            <button
-              onClick={() => setDriverTab('historico')}
-              className={`py-2 px-1 text-center font-bold rounded-lg transition-all flex flex-col items-center gap-0.5 ${
-                driverTab === 'historico' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>Histórico</span>
-              <span className="text-[10px] opacity-80">({historicoList.length})</span>
-            </button>
+            <div className="bg-amber-500/10 border border-amber-500/30 text-amber-400 px-3 py-1.5 rounded-xl font-black text-xs font-mono">
+              {driverDeliveries.length} ativas
+            </div>
           </div>
 
-          {displayedList.length === 0 ? (
+          {/* Quick Search */}
+          <div className="relative mb-4">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por NF, Cliente, Endereço..."
+              className="w-full bg-slate-950 border border-slate-800 text-white text-xs font-semibold rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:border-amber-500"
+            />
+          </div>
+
+          {/* List of Active Deliveries */}
+          {driverDeliveries.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8 gap-3 my-auto">
               <div className="p-4 bg-slate-800 text-slate-500 rounded-full">
                 <Truck className="w-10 h-10" />
               </div>
               <h3 className="font-display font-semibold text-sm text-slate-200">
-                {driverTab === 'em_rota' ? 'Nenhuma entrega em rota' :
-                 driverTab === 'pendentes' ? 'Nenhuma entrega pendente' :
-                 driverTab === 'problemas' ? 'Nenhuma ocorrência registrada' :
-                 'Histórico de entregas vazio'}
+                Nenhuma entrega pendente!
               </h3>
               <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-                {driverTab === 'em_rota' ? 'Selecione uma entrega na aba Pendentes para iniciar a rota.' :
-                 driverTab === 'pendentes' ? 'Não há entregas aguardando na sua fila de entregas.' :
-                 driverTab === 'problemas' ? 'Nenhuma entrega com problema de entrega registrado.' :
-                 'Entregas concluídas e finalizadas aparecerão automaticamente neste histórico.'}
+                Você não possui entregas ativas no momento. Quando o operador atribuir novas entregas, elas aparecerão aqui automaticamente.
               </p>
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {displayedList.map((delivery) => {
+              {driverDeliveries.map((delivery) => {
                 const isCollectOnDelivery = delivery.statusPagamento === 'receber_na_entrega';
+                const isEmRota = delivery.status === 'em_rota';
                 
                 return (
                   <div
                     key={delivery.id}
                     onClick={() => handleSelectDelivery(delivery)}
                     className={`p-4 rounded-2xl border transition-all flex flex-col gap-3 cursor-pointer ${
-                      delivery.status === 'em_rota' 
-                        ? 'bg-blue-950/20 border-blue-600/50 ring-1 ring-blue-500/20' 
-                        : delivery.status === 'entregue'
-                        ? 'bg-slate-950/30 border-slate-800 opacity-60'
-                        : delivery.status === 'nao_entregue'
-                        ? 'bg-red-950/10 border-red-900/50'
-                        : 'bg-slate-800/60 border-slate-700/80 hover:bg-slate-800'
+                      isEmRota 
+                        ? 'bg-blue-950/30 border-blue-600/60 ring-1 ring-blue-500/30 shadow-md' 
+                        : 'bg-slate-800/70 border-slate-700/80 hover:bg-slate-800'
                     }`}
                   >
+                    {/* Top Row: NF + Status Badge */}
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-[11px] font-bold text-slate-300 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800">
+                      <span className="font-mono text-[11px] font-bold text-amber-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
                         NF: {delivery.numeroNF}
                       </span>
 
-                      {/* Status Indicator Pill */}
-                      {delivery.status === 'aguardando_motorista' && (
-                        <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20 flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> Aguardando
+                      {/* Status Badges */}
+                      {isEmRota ? (
+                        <span className="text-[10px] font-bold text-blue-300 bg-blue-500/20 px-2.5 py-1 rounded-full border border-blue-500/40 flex items-center gap-1.5 animate-pulse">
+                          <RefreshCw className="w-3 h-3 animate-spin text-blue-400" />
+                          🔵 Em Rota
                         </span>
-                      )}
-                      {delivery.status === 'em_rota' && (
-                        <span className="text-[10px] font-bold text-blue-400 bg-blue-500/15 px-2.5 py-0.5 rounded-full border border-blue-500/30 flex items-center gap-1 animate-pulse">
-                          <RefreshCw className="w-3 h-3 animate-spin" /> Em Rota
-                        </span>
-                      )}
-                      {delivery.status === 'entregue' && (
-                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
-                          <Check className="w-3.5 h-3.5" /> Entregue
-                        </span>
-                      )}
-                      {delivery.status === 'nao_entregue' && (
-                        <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-2.5 py-0.5 rounded-full border border-red-500/20 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> Não entregue
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-400 bg-amber-500/15 px-2.5 py-1 rounded-full border border-amber-500/30 flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          🟡 Aguardando
                         </span>
                       )}
                     </div>
 
                     {/* Client & Address Info */}
                     <div>
-                      <h4 className="font-semibold text-slate-100 text-sm">{delivery.cliente.nome}</h4>
-                      <p className="text-xs text-slate-400 flex items-center gap-1 mt-1 font-medium truncate">
-                        <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <h4 className="font-bold text-slate-100 text-sm">{delivery.cliente.nome}</h4>
+                      <p className="text-xs text-slate-300 flex items-center gap-1 mt-1 font-medium truncate">
+                        <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                         {delivery.endereco.ruaNumero}, Nº {delivery.endereco.numero} — {delivery.endereco.bairro}
                       </p>
                     </div>
 
-                    {/* Payment Alert box */}
-                    <div className="flex items-center justify-between border-t border-slate-700/60 pt-3 mt-1 text-xs">
-                      <div className="flex items-center gap-1 text-slate-400 font-semibold">
-                        <Package className="w-3.5 h-3.5" />
-                        <span>{delivery.volumes} vol(s)</span>
+                    {/* Payment Alert & Action Button Row */}
+                    <div className="flex flex-wrap items-center justify-between border-t border-slate-700/60 pt-3 mt-1 gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 text-slate-400 font-semibold text-xs">
+                          <Package className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{delivery.volumes} vol</span>
+                        </div>
+
+                        {isCollectOnDelivery ? (
+                          <span className="bg-amber-400/10 border border-amber-400/30 text-amber-400 text-[10px] font-black px-2.5 py-0.5 rounded-lg">
+                            COBRAR: {formatCurrency(delivery.valorVenda)}
+                          </span>
+                        ) : (
+                          <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-lg">
+                            PAGO
+                          </span>
+                        )}
                       </div>
-                      
-                      {isCollectOnDelivery ? (
-                        <div className="bg-amber-400/10 border border-amber-400/30 text-amber-400 text-[11px] font-extrabold px-3 py-1 rounded-lg flex items-center gap-1">
-                          <DollarSign className="w-3.5 h-3.5" />
-                          <span>COBRAR: {formatCurrency(delivery.valorVenda)}</span>
-                        </div>
+
+                      {/* Direct In-Card Action Buttons */}
+                      {!isEmRota ? (
+                        <button
+                          onClick={(e) => handleStartDelivery(delivery, e)}
+                          className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow transition-colors flex items-center gap-1.5"
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          Iniciar Rota
+                        </button>
                       ) : (
-                        <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold px-3 py-1 rounded-lg flex items-center gap-1">
-                          <Check className="w-3 h-3" />
-                          <span>PAGO NA LOJA</span>
-                        </div>
+                        <button
+                          onClick={(e) => handleInitiateProof(delivery, e)}
+                          className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-white font-black text-xs rounded-xl shadow transition-colors flex items-center gap-1.5"
+                        >
+                          <Check className="w-4 h-4" />
+                          Finalizar Entrega
+                        </button>
                       )}
                     </div>
                   </div>
@@ -622,7 +608,7 @@ export default function DriverPanel({
         </div>
       )}
 
-      {/* SCREEN 2: DELIVERY DETAILS (B3) */}
+      {/* SCREEN 2: DELIVERY DETAILS */}
       {currentScreen === 'detail' && selectedDelivery && (
         <div className="flex-1 flex flex-col overflow-y-auto">
           {/* Header row */}
@@ -631,9 +617,9 @@ export default function DriverPanel({
               onClick={() => setCurrentScreen('list')}
               className="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-1"
             >
-              ← Voltar à lista
+              ← Voltar às Entregas
             </button>
-            <span className="font-mono text-xs font-bold text-slate-400">NF: {selectedDelivery.numeroNF}</span>
+            <span className="font-mono text-xs font-bold text-amber-400">NF: {selectedDelivery.numeroNF}</span>
           </div>
 
           <div className="p-4 flex flex-col gap-4 flex-1">
@@ -642,7 +628,7 @@ export default function DriverPanel({
             <div className="flex justify-between items-start gap-2 bg-slate-800 p-4 rounded-2xl border border-slate-700">
               <div className="min-w-0">
                 <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-wider">CLIENTE DESTINATÁRIO</span>
-                <h3 className="font-display font-bold text-md text-slate-100 mt-0.5 truncate">{selectedDelivery.cliente.nome}</h3>
+                <h3 className="font-bold text-md text-slate-100 mt-0.5 truncate">{selectedDelivery.cliente.nome}</h3>
                 <p className="text-xs text-slate-400 mt-1 flex items-center gap-1 font-semibold">
                   <Phone className="w-3.5 h-3.5 text-slate-500" />
                   {selectedDelivery.cliente.telefone}
@@ -682,7 +668,7 @@ export default function DriverPanel({
               </button>
             </div>
 
-            {/* volumes & Financial Box */}
+            {/* Volumes & Financial Box */}
             <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700 flex flex-col gap-3">
               <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-wider">CONTEÚDO E PAGAMENTO</span>
               
@@ -693,7 +679,7 @@ export default function DriverPanel({
                 </div>
                 <div className="bg-slate-900/60 p-3 rounded-xl text-center">
                   <span className="text-[9px] text-slate-500 block font-bold">VALOR DO PEDIDO</span>
-                  <span className="text-sm font-bold text-amber-400 font-display">{formatCurrency(selectedDelivery.valorVenda)}</span>
+                  <span className="text-sm font-bold text-amber-400">{formatCurrency(selectedDelivery.valorVenda)}</span>
                 </div>
               </div>
 
@@ -715,35 +701,31 @@ export default function DriverPanel({
             {/* Operator Notes */}
             {selectedDelivery.observacoes && (
               <div className="bg-slate-800 p-4 rounded-2xl border border-slate-700">
-                <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-wider mb-1">OBSERVAÇÕES DO CAIXA</span>
+                <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-wider mb-1">OBSERVAÇÕES DO OPERADOR</span>
                 <p className="text-xs text-slate-300 italic leading-relaxed">"{selectedDelivery.observacoes}"</p>
               </div>
             )}
 
           </div>
 
-          {/* Bottom Action Drawer Sheet (B4) */}
+          {/* Bottom Action Sheet */}
           <div className="bg-slate-950 p-4 border-t border-slate-800 sticky bottom-0">
-            {selectedDelivery.status === 'aguardando_motorista' && (
+            {selectedDelivery.status !== 'em_rota' ? (
               <button
-                onClick={handleStartDelivery}
-                className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm rounded-xl transition-colors shadow-md flex items-center justify-center gap-2"
-                id="btn-start-delivery"
+                onClick={() => handleStartDelivery()}
+                className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm rounded-xl transition-colors shadow-md flex items-center justify-center gap-2"
               >
                 <Truck className="w-5 h-5" />
-                Iniciar Rota / Saída da Loja
+                Iniciar Rota de Entrega
               </button>
-            )}
-
-            {selectedDelivery.status === 'em_rota' && (
+            ) : (
               <div className="flex flex-col gap-2">
                 <button
-                  onClick={handleInitiateProof}
-                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-sm rounded-xl transition-colors shadow-md flex items-center justify-center gap-1.5"
-                  id="btn-mark-delivered"
+                  onClick={() => handleInitiateProof()}
+                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-black text-sm rounded-xl transition-colors shadow-md flex items-center justify-center gap-1.5"
                 >
                   <Check className="w-5 h-5 stroke-[3px]" />
-                  Marcar como Entregue
+                  Finalizar Entrega
                 </button>
                 
                 <button
@@ -755,36 +737,30 @@ export default function DriverPanel({
                 </button>
               </div>
             )}
-
-            {(selectedDelivery.status === 'entregue' || selectedDelivery.status === 'nao_entregue' || selectedDelivery.status === 'cancelada') && (
-              <div className="text-center p-3 text-xs bg-slate-900 border border-slate-800 rounded-xl text-slate-400">
-                Esta entrega já foi processada anteriormente. Status atual: <span className="font-bold uppercase text-slate-200">{selectedDelivery.status.replace('_', ' ')}</span>
-              </div>
-            )}
           </div>
         </div>
       )}
 
-      {/* SCREEN 3: PROOF SIGNATURE AND PHOTO CONFIRMATION (B5) */}
+      {/* SPRINT 18 REQUIREMENT: SINGLE-SCREEN FINALIZATION MODAL (ALL 7 FIELDS ON ONE SCREEN) */}
       {currentScreen === 'confirm' && selectedDelivery && (
         <div className="flex-1 flex flex-col overflow-y-auto">
           {/* Header */}
-          <div className="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between">
+          <div className="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between sticky top-0 z-10">
             <button 
               onClick={() => setCurrentScreen('detail')}
               className="text-xs font-bold text-slate-400 hover:text-white"
             >
               Cancelar
             </button>
-            <span className="font-display font-bold text-xs tracking-wide text-emerald-400 uppercase">Comprovação Eletrônica</span>
+            <span className="font-bold text-xs tracking-wide text-emerald-400 uppercase">Finalizar Cadastro de Entrega</span>
           </div>
 
-          <div className="p-4 flex flex-col gap-5">
+          <div className="p-4 flex flex-col gap-4">
             
-            {/* Geolocation indicator */}
+            {/* 1. AUTO GPS Coordinates Badge */}
             <div className="bg-slate-800 border border-slate-700 p-3.5 rounded-2xl flex items-center justify-between">
               <div>
-                <span className="text-[9px] text-slate-400 font-bold block uppercase">Registro GPS de Entrega</span>
+                <span className="text-[9px] text-slate-400 font-bold block uppercase">Registro GPS de Satélite</span>
                 {isCapturingGPS ? (
                   <span className="text-xs font-semibold text-amber-400 flex items-center gap-1 mt-0.5 animate-pulse">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -796,30 +772,46 @@ export default function DriverPanel({
                     Lat: {gpsCoordinates.lat.toFixed(5)}, Lng: {gpsCoordinates.lng.toFixed(5)}
                   </span>
                 ) : (
-                  <span className="text-xs font-semibold text-red-400 flex items-center gap-1 mt-0.5">
-                    <MapPinOff className="w-3.5 h-3.5" /> GPS Indisponível (Mock Ativo)
+                  <span className="text-xs font-semibold text-slate-400 flex items-center gap-1 mt-0.5">
+                    <MapPinOff className="w-3.5 h-3.5" /> GPS Registrado
                   </span>
                 )}
               </div>
-              <span className="text-[10px] bg-slate-900 px-2 py-0.5 rounded-md text-slate-500 font-bold font-mono">AUTOMÁTICO</span>
+              <span className="text-[10px] bg-slate-900 px-2.5 py-1 rounded-md text-slate-400 font-bold font-mono">
+                AUTOMÁTICO
+              </span>
             </div>
 
-            {/* Receiver Name (Mandatory) */}
+            {/* 2. AUTO Date / Time Display */}
+            <div className="bg-slate-800 border border-slate-700 p-3.5 rounded-2xl flex items-center justify-between">
+              <div>
+                <span className="text-[9px] text-slate-400 font-bold block uppercase">Data & Hora do Encerramento</span>
+                <span className="text-xs font-mono font-bold text-white flex items-center gap-1 mt-0.5">
+                  <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                  {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              <span className="text-[10px] bg-slate-900 px-2.5 py-1 rounded-md text-slate-400 font-bold font-mono">
+                AUTOMÁTICO
+              </span>
+            </div>
+
+            {/* 3. Receiver Name (Mandatory) */}
             <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl flex flex-col gap-2">
               <label className="text-xs font-bold text-slate-200 flex items-center justify-between">
-                <span>Nome de quem recebeu a mercadoria <span className="text-red-400">*</span></span>
+                <span>Nome de quem recebeu <span className="text-red-400">*</span></span>
               </label>
               <input
                 type="text"
                 value={recebedorNome}
                 onChange={(e) => setRecebedorNome(e.target.value)}
-                placeholder="Digite o nome de quem recebeu..."
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
+                placeholder="Nome completo do recebedor..."
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-semibold"
                 required
               />
             </div>
 
-            {/* Signature Pad */}
+            {/* 4. Signature Pad (Mandatory) */}
             <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl">
               <SignaturePad 
                 onSave={(dataUrl) => setSignatureDataUrl(dataUrl)}
@@ -827,25 +819,37 @@ export default function DriverPanel({
               />
             </div>
 
-            {/* Photo Capture */}
+            {/* 6. Photo Capture */}
             <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl">
               <CameraCapture 
-                label="Foto de comprovação (Produto entregue ou Fachada)"
+                label="Foto do produto entregue ou Fachada"
                 onCapture={(dataUrl) => setPhotoDataUrl(dataUrl)}
                 savedImage={photoDataUrl || undefined}
                 onClear={() => setPhotoDataUrl(null)}
               />
             </div>
 
+            {/* 7. Observations */}
+            <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl flex flex-col gap-2">
+              <label className="text-xs font-bold text-slate-200">
+                <span>Observação da entrega (Opcional)</span>
+              </label>
+              <textarea
+                value={observacaoEntrega}
+                onChange={(e) => setObservacaoEntrega(e.target.value)}
+                placeholder="Ex: Deixado com a portaria, entregue no apartamento 102..."
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 h-20"
+              />
+            </div>
+
           </div>
 
-          {/* Footer Submit */}
-          <div className="bg-slate-950 p-4 border-t border-slate-800 sticky bottom-0 mt-auto">
+          {/* Submit Action Button */}
+          <div className="bg-slate-950 p-4 border-t border-slate-800 sticky bottom-0 mt-auto z-10">
             <button
               onClick={handleConfirmDelivered}
               disabled={!signatureDataUrl || !recebedorNome.trim()}
-              className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:pointer-events-none text-white font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
-              id="btn-confirm-delivery-submit"
+              className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:pointer-events-none text-white font-extrabold text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
             >
               <FileCheck className="w-5 h-5" />
               Finalizar e Confirmar Entrega
@@ -854,7 +858,7 @@ export default function DriverPanel({
         </div>
       )}
 
-      {/* SCREEN 4: DELIVERY FAILURE ENTRY (B6) */}
+      {/* SCREEN 4: DELIVERY FAILURE ENTRY */}
       {currentScreen === 'fail' && selectedDelivery && (
         <div className="flex-1 flex flex-col overflow-y-auto">
           {/* Header */}
@@ -865,7 +869,7 @@ export default function DriverPanel({
             >
               Cancelar
             </button>
-            <span className="font-display font-bold text-xs tracking-wide text-red-400 uppercase">Falha na entrega</span>
+            <span className="font-bold text-xs tracking-wide text-red-400 uppercase">Falha na entrega</span>
           </div>
 
           <div className="p-4 flex flex-col gap-4">
@@ -905,8 +909,8 @@ export default function DriverPanel({
               <textarea
                 value={failDetails}
                 onChange={(e) => setFailDetails(e.target.value)}
-                placeholder="Ex: Vizinho informou que o cliente viajou. Tentei ligar mas deu caixa postal..."
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-slate-100 focus:outline-none focus:border-red-500 h-24"
+                placeholder="Ex: Vizinho informou que o cliente viajou..."
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-slate-100 focus:outline-none focus:border-red-500 h-24"
               />
             </div>
 
@@ -936,7 +940,7 @@ export default function DriverPanel({
             const target = driverDeliveries.find(d => d.id === deliveryId);
             if (target) {
               setSelectedDelivery(target);
-              handleInitiateProof();
+              handleInitiateProof(target);
             }
           }}
           onClose={() => setShowQrScanner(false)}
