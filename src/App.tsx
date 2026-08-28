@@ -12,7 +12,9 @@ import MasterPanel from './components/MasterPanel';
 import OfflineStatusBanner from './components/OfflineStatusBanner';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
 import FastGestaoLogo from './components/FastGestaoLogo';
+import BrandLogo from './components/BrandLogo';
 import SplashScreen from './components/SplashScreen';
+import { DEFAULT_DELIVERY_FORM_CONFIG } from './components/DeliveryFormConfigPanel';
 import { applyThemeMode, applyCompanyTheme, getStoredThemeMode, ThemeMode } from './lib/themeConfig';
 import { 
   Users, Shield, HelpCircle, LogOut, Key, Mail, Lock, Building, 
@@ -248,6 +250,7 @@ export default function App() {
       status,
       entregadorId,
       entregadorNome,
+      formSnapshot: currentCompany.deliveryFormConfig || DEFAULT_DELIVERY_FORM_CONFIG,
       historico: [
         {
           id: 'h_' + Date.now(),
@@ -389,10 +392,27 @@ export default function App() {
     Database.saveVehicles(currentUser.companyId, updated);
   };
 
-  const handleAddUser = async (nome: string, email: string, role: UserRole, motoristaId?: string, senhaInitial?: string) => {
+  const handleAddUser = async (
+    nome: string, 
+    email: string, 
+    role: UserRole, 
+    motoristaId?: string, 
+    senhaInitial?: string,
+    telefone?: string,
+    ativo: boolean = true
+  ) => {
     if (!currentUser || !currentCompany) return;
     const initialPass = senhaInitial || '123456';
-    const res = await Database.createUser(currentUser.companyId, nome, email, initialPass, role, motoristaId);
+    const res = await Database.createUser(
+      currentUser.companyId, 
+      nome, 
+      email, 
+      initialPass, 
+      role, 
+      motoristaId,
+      telefone,
+      ativo
+    );
     if (res.success) {
       setUsers(Database.getUsers(currentUser.companyId));
       setDrivers(Database.getDrivers(currentUser.companyId));
@@ -462,15 +482,18 @@ export default function App() {
   // If NOT authenticated, show the modern, high-polished login/register portal
   if (!currentUser || !currentCompany) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden font-sans">
+      <div className="min-h-screen bg-[#F5F7FA] flex items-center justify-center p-4 relative overflow-hidden font-sans text-slate-800">
         {/* Ambient abstract visual layout */}
         <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 md:p-8 relative z-10">
+        <div className="w-full max-w-md bg-white border border-slate-200/80 rounded-2xl shadow-xl p-6 md:p-8 relative z-10">
           <div className="flex flex-col items-center text-center mb-6">
-            <FastGestaoLogo size={150} className="mb-3" />
-            <p className="text-xs text-slate-400">
+            <BrandLogo
+              size={120}
+              className="w-[110px] h-[110px] md:w-[140px] md:h-[140px] object-contain object-center block mx-auto mb-[18px] md:mb-[24px]"
+            />
+            <p className="text-xs text-slate-500 font-medium">
               {authMode === 'login' && 'Faça login para gerenciar sua frota e entregas'}
               {authMode === 'register_company' && 'Cadastre sua empresa e inicie do zero'}
               {authMode === 'recover' && 'Insira seu e-mail para recuperar seu acesso'}
@@ -478,15 +501,15 @@ export default function App() {
           </div>
 
           {authError && (
-            <div className="mb-4 p-3 bg-red-950/50 border border-red-800 text-red-200 text-xs rounded-xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl flex items-center gap-2 font-medium">
+              <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
               <span>{authError}</span>
             </div>
           )}
 
           {authSuccess && (
-            <div className="mb-4 p-3 bg-emerald-950/50 border border-emerald-800 text-emerald-200 text-xs rounded-xl flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 font-medium">
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>{authSuccess}</span>
             </div>
           )}
@@ -494,43 +517,43 @@ export default function App() {
           {authMode === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">E-mail</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">E-mail de Acesso</label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="email"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     placeholder="email@empresa.com"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors"
                   />
                 </div>
               </div>
 
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Senha</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Senha</label>
                   <button
                     type="button"
                     onClick={() => setAuthMode('recover')}
-                    className="text-xs text-amber-500 hover:underline"
+                    className="text-xs text-blue-600 hover:underline font-medium"
                   >
                     Esqueceu a senha?
                   </button>
                 </div>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type={showPassword ? "text" : "password"}
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     placeholder="Sua senha"
-                    className="w-full pl-10 pr-10 py-2.5 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
+                    className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -539,7 +562,7 @@ export default function App() {
 
               <button
                 type="submit"
-                className="w-full bg-amber-500 text-slate-950 hover:bg-amber-400 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-amber-500/10 transition-colors flex items-center justify-center gap-1.5"
+                className="w-full bg-amber-500 text-slate-950 hover:bg-amber-400 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors flex items-center justify-center gap-1.5"
               >
                 Entrar no Painel
                 <ChevronRight className="w-4 h-4" />
@@ -550,23 +573,23 @@ export default function App() {
           {authMode === 'recover' && (
             <form onSubmit={handleRecover} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Seu E-mail Cadastrado</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Seu E-mail Cadastrado</label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="email"
                     required
                     value={recoverEmail}
                     onChange={(e) => setRecoverEmail(e.target.value)}
                     placeholder="email@empresa.com"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 text-white placeholder-slate-600 rounded-xl text-sm focus:outline-none focus:border-amber-500 transition-colors"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 text-slate-900 placeholder-slate-400 rounded-xl text-sm focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-colors"
                   />
                 </div>
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-amber-500 text-slate-950 hover:bg-amber-400 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-amber-500/10 transition-colors flex items-center justify-center gap-1.5"
+                className="w-full bg-amber-500 text-slate-950 hover:bg-amber-400 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors flex items-center justify-center gap-1.5"
               >
                 Enviar Instruções
                 <ChevronRight className="w-4 h-4" />
@@ -579,14 +602,14 @@ export default function App() {
                   setAuthSuccess(null);
                   setAuthMode('login');
                 }}
-                className="w-full text-xs text-slate-400 hover:text-white transition-colors py-1 block text-center"
+                className="w-full text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors py-1 block text-center"
               >
                 Voltar para o Login
               </button>
             </form>
           )}
 
-          <div className="text-[11px] text-slate-600 text-center mt-6">
+          <div className="text-[11px] text-slate-400 text-center mt-6">
             © 2026 FastGestão Entregas S.A. Todos os direitos reservados.
           </div>
         </div>
@@ -619,14 +642,14 @@ export default function App() {
 
   // APP INTERFACE FOR AUTHENTICATED STORE USERS OR MASTER IN SUPPORT MODE
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col font-sans text-slate-100">
+    <div className="min-h-screen bg-[#F5F7FA] flex flex-col font-sans text-slate-800">
       
       {/* OFFLINE STATUS BANNER */}
       <OfflineStatusBanner />
 
       {/* SUPPORT MODE STICKY BANNER */}
       {supportModeCompany && (
-        <div className="bg-amber-500 text-slate-950 px-6 py-2.5 text-xs font-bold flex items-center justify-between shadow-xl z-50 sticky top-0">
+        <div className="bg-amber-500 text-slate-950 px-6 py-2.5 text-xs font-bold flex items-center justify-between shadow-md z-50 sticky top-0">
           <div className="flex items-center gap-2">
             <Eye className="w-4 h-4" />
             <span>🛠️ MODO DE SUPORTE MASTER ATIVO — Visualizando Painel da Empresa: <strong>{supportModeCompany.nome}</strong></span>
@@ -648,109 +671,109 @@ export default function App() {
 
       {/* MY PROFILE DRAWER / BLOCK */}
       {activeProfileTab && (
-        <div className="bg-slate-900 border-b border-slate-800 px-4 py-6 md:px-8 shadow-inner animate-fade-in print:hidden">
+        <div className="bg-white border-b border-slate-200 px-4 py-6 md:px-8 shadow-sm animate-fade-in print:hidden text-slate-800">
           <div className="max-w-4xl mx-auto">
-            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Shield className="w-5 h-5 text-amber-500" />
                 Configurações da Conta & Segurança
               </h2>
               <button 
                 onClick={() => setActiveProfileTab(false)} 
-                className="text-xs text-slate-400 hover:text-white bg-slate-800 px-3 py-1 rounded-lg"
+                className="text-xs text-slate-600 hover:text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 font-medium"
               >
                 Fechar Painel
               </button>
             </div>
 
             {profileError && (
-              <div className="mb-4 p-3 bg-red-950/50 border border-red-800 text-red-200 text-xs rounded-xl flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400" />
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl flex items-center gap-2 font-medium">
+                <AlertCircle className="w-4 h-4 text-red-500" />
                 <span>{profileError}</span>
               </div>
             )}
 
             {profileSuccess && (
-              <div className="mb-4 p-3 bg-emerald-950/50 border border-emerald-800 text-emerald-200 text-xs rounded-xl flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
+              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 font-medium">
+                <CheckCircle className="w-4 h-4 text-emerald-600" />
                 <span>{profileSuccess}</span>
               </div>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Profile Fields */}
-              <form onSubmit={handleUpdateProfile} className="space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-2">Dados do Perfil</h3>
+              <form onSubmit={handleUpdateProfile} className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Dados do Perfil</h3>
                 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Nome Completo</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nome Completo</label>
                   <input
                     type="text"
                     required
                     value={profileName}
                     onChange={(e) => setProfileName(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 text-slate-900 rounded-lg text-xs focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">E-mail de Acesso</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail de Acesso</label>
                   <input
                     type="email"
                     required
                     value={profileEmail}
                     onChange={(e) => setProfileEmail(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 text-slate-900 rounded-lg text-xs focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Telefone / WhatsApp</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Telefone / WhatsApp</label>
                   <input
                     type="text"
                     value={profilePhone}
                     onChange={(e) => setProfilePhone(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 text-slate-900 rounded-lg text-xs focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-lg hover:bg-amber-400 transition-colors"
+                  className="px-4 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-lg hover:bg-amber-400 transition-colors shadow-xs"
                 >
                   Salvar Perfil
                 </button>
               </form>
 
               {/* Password Change */}
-              <form onSubmit={handleChangePass} className="space-y-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-2">Alterar Senha</h3>
+              <form onSubmit={handleChangePass} className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Alterar Senha</h3>
                 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Senha Atual</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Senha Atual</label>
                   <input
                     type="password"
                     required
                     value={passOld}
                     onChange={(e) => setPassOld(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 text-slate-900 rounded-lg text-xs focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Nova Senha</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nova Senha</label>
                   <input
                     type="password"
                     required
                     value={passNew}
                     onChange={(e) => setPassNew(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 text-slate-900 rounded-lg text-xs focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-slate-800 text-white hover:bg-slate-700 font-bold text-xs rounded-lg border border-slate-700 transition-colors"
+                  className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 font-bold text-xs rounded-lg transition-colors shadow-xs"
                 >
                   Atualizar Senha
                 </button>

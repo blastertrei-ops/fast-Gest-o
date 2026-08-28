@@ -53,11 +53,14 @@ declare global {
 interface ApiUser {
   id: string;
   companyId: string;
+  organizationId?: string;
+  tenantId?: string;
   nome: string;
   email: string;
   senhaHash: string;
   telefone?: string;
   role: string;
+  permissoesCustomizadas?: any;
   motoristaId?: string;
   ativo: boolean;
   criadoEm: string;
@@ -145,6 +148,26 @@ function hashPassword(pass: string): string {
   return `sec_hash_${hash.toString(16)}`;
 }
 
+// Recursive sanitizer to strip `undefined` fields for Firestore compatibility
+function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
+
 // Seed Initial Database in Firestore
 async function seedInitialData() {
   try {
@@ -164,16 +187,16 @@ async function seedInitialData() {
         ativo: true,
         criadoEm: new Date().toISOString()
       };
-      await setDoc(doc(firestoreDb, 'usuarios', masterUserSistema.id), masterUserSistema);
+      await setDoc(doc(firestoreDb, 'usuarios', masterUserSistema.id), sanitizeForFirestore(masterUserSistema));
       console.log('Criado usuário master@sistema.com no Firestore.');
     } else {
       // Ensure role and active status and update password hash
       const docRef = masterSistemaSnap.docs[0].ref;
-      await updateDoc(docRef, {
+      await updateDoc(docRef, sanitizeForFirestore({
         senhaHash: hashPassword('master123'),
         ativo: true,
         role: 'master'
-      });
+      }));
       console.log('Atualizado senha do usuário master@sistema.com.');
     }
 
@@ -191,7 +214,7 @@ async function seedInitialData() {
         ativo: true,
         criadoEm: new Date().toISOString()
       };
-      await setDoc(doc(firestoreDb, 'usuarios', masterUserFastlog.id), masterUserFastlog);
+      await setDoc(doc(firestoreDb, 'usuarios', masterUserFastlog.id), sanitizeForFirestore(masterUserFastlog));
     } else {
       const docRef = masterFastlogSnap.docs[0].ref;
       await updateDoc(docRef, {
@@ -929,10 +952,35 @@ app.post('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
+function getPermissionsForRole(role: string) {
+  const isMasterOrAdmin = role === 'master' || role === 'admin';
+  return {
+    criar_clientes: true,
+    editar_clientes: true,
+    excluir_clientes: isMasterOrAdmin,
+    criar_entregas: true,
+    editar_entregas: true,
+    excluir_entregas: isMasterOrAdmin,
+    alterar_status_entregas: true,
+    criar_usuarios: isMasterOrAdmin,
+    excluir_usuarios: isMasterOrAdmin,
+    ver_relatorios: true,
+    exportar_dados: isMasterOrAdmin,
+    configuracoes_empresa: isMasterOrAdmin,
+    dashboard: true,
+    financeiro: isMasterOrAdmin,
+    logs: isMasterOrAdmin,
+    backup: isMasterOrAdmin,
+    ia: true
+  };
+}
+
 app.get('/api/users/:companyId', authenticateToken, async (req, res) => {
   try {
     const { companyId } = req.params;
-    const q = query(collection(firestoreDb, 'usuarios'), where('companyId', '==', companyId));
+    const q = companyId === 'global'
+      ? query(collection(firestoreDb, 'usuarios'))
+      : query(collection(firestoreDb, 'usuarios'), where('companyId', '==', companyId));
     const snap = await getDocs(q);
     const users = snap.docs.map(d => {
       const { senhaHash, ...u } = d.data() as ApiUser;
@@ -947,7 +995,7 @@ app.get('/api/users/:companyId', authenticateToken, async (req, res) => {
 app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
   try {
     const { companyId } = req.params;
-    const { nome, email, senha, role, motoristaId } = req.body;
+    const { nome, email, senha, role, motoristaId, telefone, ativo = true } = req.body;
 
     if (!nome || !email || !senha || !role) {
       return res.status(400).json({ error: 'Preencha nome, e-mail, senha e perfil.' });
@@ -955,43 +1003,90 @@ app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
 
-    // Check if user already exists in Firestore
+    // Check if user already exists in Firestore by email
     const q = query(collection(firestoreDb, 'usuarios'), where('email', '==', cleanEmail));
     const existing = await getDocs(q);
     if (!existing.empty) {
-      return res.status(400).json({ error: 'E-mail de usuário já cadastrado.' });
+      return res.status(400).json({ error: 'E-mail de usuário já cadastrado no banco central.' });
     }
 
     const userId = 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const resolvedCompanyId = companyId || 'global';
+    const resolvedOrgId = resolvedCompanyId;
+    const resolvedTenantId = resolvedCompanyId;
+
+    const defaultPerms = getPermissionsForRole(role);
+
     const newUser: ApiUser = {
       id: userId,
-      companyId,
-      nome,
+      companyId: resolvedCompanyId,
+      organizationId: resolvedOrgId,
+      tenantId: resolvedTenantId,
+      nome: String(nome).trim(),
       email: cleanEmail,
       senhaHash: hashPassword(senha),
+      telefone: telefone ? String(telefone).trim() : '',
       role,
-      motoristaId,
-      ativo: true,
+      permissoesCustomizadas: defaultPerms,
+      motoristaId: motoristaId || undefined,
+      ativo: ativo !== false,
       criadoEm: new Date().toISOString()
     };
 
-    await setDoc(doc(firestoreDb, 'usuarios', userId), newUser);
+    await setDoc(doc(firestoreDb, 'usuarios', userId), sanitizeForFirestore(newUser));
 
-    if (role === 'motorista' && motoristaId) {
-      await updateDoc(doc(firestoreDb, 'drivers', motoristaId), { userId });
+    // Link or create driver record if role is motorista / entregador
+    if ((role === 'motorista' || role === 'entregador' || role === 'driver') && motoristaId) {
+      const drvRef = doc(firestoreDb, 'drivers', motoristaId);
+      const drvSnap = await getDoc(drvRef);
+      if (drvSnap.exists()) {
+        await updateDoc(drvRef, sanitizeForFirestore({ userId }));
+      }
+    } else if ((role === 'motorista' || role === 'entregador' || role === 'driver') && !motoristaId) {
+      const newDriverId = 'drv_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      const newDriver = {
+        id: newDriverId,
+        userId: userId,
+        companyId: resolvedCompanyId,
+        nome: String(nome).trim(),
+        email: cleanEmail,
+        telefone: telefone ? String(telefone).trim() : '',
+        cpf: '',
+        ativo: true,
+        online: false,
+        rotaAtual: null,
+        ultimaLocalizacao: null,
+        criadoEm: new Date().toISOString()
+      };
+      await setDoc(doc(firestoreDb, 'drivers', newDriverId), sanitizeForFirestore(newDriver));
+      newUser.motoristaId = newDriverId;
+      await updateDoc(doc(firestoreDb, 'usuarios', userId), sanitizeForFirestore({ motoristaId: newDriverId }));
     }
+
+    // Audit Log Entry
+    const auditId = 'aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
+    await setDoc(doc(firestoreDb, 'auditoria', auditId), sanitizeForFirestore({
+      id: auditId,
+      companyId: resolvedCompanyId,
+      usuarioId: userId,
+      usuarioNome: (req.user as any)?.nome || 'Sistema',
+      acao: 'Criação de Usuário',
+      detalhes: `Usuário ${newUser.nome} (${cleanEmail}) cadastrado com perfil ${role}.`,
+      ip: req.ip || '127.0.0.1',
+      dataHora: new Date().toISOString()
+    })).catch(() => {});
 
     const { senhaHash, ...userWithoutPassword } = newUser;
     return res.json({ success: true, user: userWithoutPassword });
-  } catch (err) {
+  } catch (err: any) {
     console.error('Erro ao cadastrar usuário:', err);
-    return res.status(500).json({ error: 'Erro ao cadastrar usuário no banco central' });
+    return res.status(500).json({ error: err?.message || 'Erro ao cadastrar usuário no banco central' });
   }
 });
 
 app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { userId, companyId } = req.params;
     const updates = req.body;
 
     const userRef = doc(firestoreDb, 'usuarios', userId);
@@ -1000,12 +1095,37 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
+    if (updates.email) {
+      const cleanEmail = String(updates.email).trim().toLowerCase();
+      const q = query(collection(firestoreDb, 'usuarios'), where('email', '==', cleanEmail));
+      const existing = await getDocs(q);
+      const otherUser = existing.docs.find(d => d.id !== userId);
+      if (otherUser) {
+        return res.status(400).json({ error: 'E-mail de usuário já está em uso por outra conta.' });
+      }
+      updates.email = cleanEmail;
+    }
+
     if (updates.senha) {
       updates.senhaHash = hashPassword(updates.senha);
       delete updates.senha;
     }
 
-    await updateDoc(userRef, updates);
+    await updateDoc(userRef, sanitizeForFirestore(updates));
+
+    // Audit Log Entry
+    const auditId = 'aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
+    await setDoc(doc(firestoreDb, 'auditoria', auditId), sanitizeForFirestore({
+      id: auditId,
+      companyId: companyId || 'global',
+      usuarioId: userId,
+      usuarioNome: (req.user as any)?.nome || 'Sistema',
+      acao: 'Atualização de Usuário',
+      detalhes: `Dados do usuário ${userId} atualizados.`,
+      ip: req.ip || '127.0.0.1',
+      dataHora: new Date().toISOString()
+    })).catch(() => {});
+
     return res.json({ success: true });
   } catch (err) {
     console.error('Erro ao atualizar usuário:', err);
@@ -1015,14 +1135,30 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
 
 app.delete('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { userId, companyId } = req.params;
     const userRef = doc(firestoreDb, 'usuarios', userId);
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
+    const userData = userSnap.data() as ApiUser;
+
     await deleteDoc(userRef);
+
+    // Audit Log Entry
+    const auditId = 'aud_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
+    await setDoc(doc(firestoreDb, 'auditoria', auditId), {
+      id: auditId,
+      companyId: companyId || 'global',
+      usuarioId: userId,
+      usuarioNome: (req.user as any)?.nome || 'Sistema',
+      acao: 'Exclusão de Usuário',
+      detalhes: `Usuário ${userData.nome} (${userData.email}) excluído do sistema.`,
+      ip: req.ip || '127.0.0.1',
+      dataHora: new Date().toISOString()
+    }).catch(() => {});
+
     return res.json({ success: true, message: 'Usuário excluído com sucesso.' });
   } catch (err) {
     console.error('Erro ao excluir usuário:', err);

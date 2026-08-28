@@ -6,9 +6,10 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Plus, Search, Filter, Calendar, Users, Truck, DollarSign, Package, 
-  MapPin, CheckCircle2, AlertTriangle, Clock, XCircle, FileText, Phone, 
+  MapPin, CheckCircle2, AlertTriangle, Clock, XCircle, FileText, Phone, X,
   FileCheck, Shield, ChevronRight, UserPlus, Trash, Trash2, Printer, FileDown, Eye, Check, RefreshCw, Loader2,
-  Edit3, Unlock, Lock, Key, Sliders, History, QrCode, Navigation, Palette, Building, LogOut
+  Edit3, Unlock, Lock, Key, Sliders, History, Navigation, Palette, Building, LogOut,
+  Bell, ChevronDown, List, MoreHorizontal
 } from 'lucide-react';
 import { 
   Entrega, Motorista, Veiculo, Usuario, Empresa, EntregaStatus, 
@@ -16,12 +17,12 @@ import {
   Cliente, RegistroAuditoria, UserRole, DeliveryFormConfig, CustomFieldType
 } from '../types';
 import { Database } from '../lib/db';
-import QrCodeGenerator from './QrCodeGenerator';
+import DynamicDeliveryDetails from './DynamicDeliveryDetails';
+import { generateA4ReceiptHtml } from '../utils/pdfGenerator';
 import ReportPanel from './ReportPanel';
 import DeliveryHistoryPanel from './DeliveryHistoryPanel';
 import DeliveryFormConfigPanel, { DEFAULT_DELIVERY_FORM_CONFIG } from './DeliveryFormConfigPanel';
 import DeliveryForm, { DeliveryFormValues } from './DeliveryForm';
-import QrScannerModal from './QrScannerModal';
 import CepInput from './CepInput';
 import GpsTrackingPanel from './GpsTrackingPanel';
 import ThemeConfigModal from './ThemeConfigModal';
@@ -47,7 +48,7 @@ interface OperatorPanelProps {
   onAddVehicle: (vehicle: Omit<Veiculo, 'id' | 'companyId'>) => void;
   onUpdateVehicle: (id: string, updates: Partial<Veiculo>) => void;
   onDeleteVehicle: (id: string) => void;
-  onAddUser: (nome: string, email: string, role: 'operador' | 'motorista', motoristaId?: string) => void;
+  onAddUser: (nome: string, email: string, role: UserRole, motoristaId?: string, senhaInitial?: string, telefone?: string, ativo?: boolean) => void;
   onUpdateUserStatus: (userId: string, ativo: boolean) => void;
   onDeleteUser?: (userId: string) => void;
   onLogout: () => void;
@@ -116,8 +117,6 @@ export default function OperatorPanel({
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelMotive, setCancelMotive] = useState('');
   const [showReceiptModal, setShowReceiptModal] = useState(false);
-  const [scannedQrCode, setScannedQrCode] = useState<string>('');
-  const [showScannerModal, setShowScannerModal] = useState(false);
 
   // Edit Delivery Form States
   const [showEditDeliveryModal, setShowEditDeliveryModal] = useState(false);
@@ -235,7 +234,11 @@ export default function OperatorPanel({
   // New Collaborator Form States
   const [newCollabNome, setNewCollabNome] = useState('');
   const [newCollabEmail, setNewCollabEmail] = useState('');
-  const [newCollabRole, setNewCollabRole] = useState<'operador' | 'motorista'>('operador');
+  const [newCollabTelefone, setNewCollabTelefone] = useState('');
+  const [newCollabSenha, setNewCollabSenha] = useState('');
+  const [newCollabConfirmSenha, setNewCollabConfirmSenha] = useState('');
+  const [newCollabRole, setNewCollabRole] = useState<UserRole>('operador');
+  const [newCollabAtivo, setNewCollabAtivo] = useState(true);
   const [newCollabDriverId, setNewCollabDriverId] = useState('');
 
   // Helpers
@@ -526,15 +529,26 @@ export default function OperatorPanel({
       alert('Informe Nome e E-mail.');
       return;
     }
+    if (newCollabSenha && newCollabSenha !== newCollabConfirmSenha) {
+      alert('As senhas digitadas não coincidem.');
+      return;
+    }
     onAddUser(
       newCollabNome,
       newCollabEmail,
       newCollabRole,
-      newCollabRole === 'motorista' ? newCollabDriverId : undefined
+      newCollabRole === 'motorista' ? newCollabDriverId : undefined,
+      newCollabSenha || '123456',
+      newCollabTelefone,
+      newCollabAtivo
     );
     setNewCollabNome('');
     setNewCollabEmail('');
+    setNewCollabTelefone('');
+    setNewCollabSenha('');
+    setNewCollabConfirmSenha('');
     setNewCollabRole('operador');
+    setNewCollabAtivo(true);
     setNewCollabDriverId('');
     setShowUserModal(false);
   };
@@ -629,21 +643,6 @@ export default function OperatorPanel({
     });
   }, [deliveries, dateFilter, dateViewMode, statusFilter, driverFilter, searchQuery, availableDrivers]);
 
-  // QR Code Simulator
-  const handleScanQrCodeSimulate = () => {
-    if (!scannedQrCode) return;
-    const found = deliveries.find(d => d.id === scannedQrCode || d.numeroNF === scannedQrCode || d.numeroPedido === scannedQrCode);
-    if (found) {
-      // Ensure we switch to that delivery's date to show it
-      setDateFilter(found.dataEntregaPrevista);
-      setSelectedDelivery(found);
-      setScannedQrCode('');
-      setShowScannerModal(false);
-    } else {
-      alert('Nenhuma entrega correspondente encontrada para este QR Code.');
-    }
-  };
-
   // CLIENT MANAGEMENT HANDLERS
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -728,312 +727,224 @@ export default function OperatorPanel({
     );
   }, [clients, clientSearchQuery]);
 
-  // PRINT RECEIPT LAYOUT SIMULATION (PDF Receipt Generation)
+  // PRINT RECEIPT LAYOUT (A4 PDF Receipt Generation using Form Snapshot or Form Config)
   const printOfficialReceipt = () => {
     if (!selectedDelivery) return;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
     const driverObj = drivers.find(drv => drv.id === selectedDelivery.motoristaId);
-
-    const html = `
-      <html>
-        <head>
-          <title>Comprovante de Entrega - NF ${selectedDelivery.numeroNF}</title>
-          <style>
-            body { font-family: sans-serif; color: #0f172a; padding: 32px; max-width: 650px; margin: 0 auto; line-height: 1.5; }
-            .border-box { border: 2px solid #0f172a; padding: 24px; border-radius: 8px; }
-            .header { text-align: center; border-bottom: 2px dashed #0f172a; padding-bottom: 16px; margin-bottom: 20px; }
-            .logo { font-size: 24px; font-weight: 900; letter-spacing: -1px; margin-bottom: 4px; }
-            .title { font-size: 16px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
-            .section { margin-bottom: 16px; }
-            .section-title { font-size: 11px; font-weight: bold; text-transform: uppercase; background-color: #f1f5f9; padding: 4px 8px; margin-bottom: 8px; }
-            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-            .label { font-size: 10px; color: #64748b; font-weight: bold; text-transform: uppercase; }
-            .val { font-size: 13px; font-weight: bold; margin-top: 2px; }
-            .signature-box { border: 1px solid #cbd5e1; height: 120px; border-radius: 6px; margin-top: 8px; display: flex; align-items: center; justify-content: center; background-color: #fafafa; }
-            .signature-img { max-height: 100px; max-width: 100%; object-fit: contain; }
-            .photo-box { border: 1px solid #cbd5e1; border-radius: 6px; height: 160px; overflow: hidden; margin-top: 8px; background-color: #fafafa; }
-            .photo-img { width: 100%; height: 100%; object-fit: cover; }
-            .footer { text-align: center; margin-top: 32px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px; }
-            @media print {
-              body { padding: 0; }
-              .border-box { border: none; padding: 0; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="border-box">
-            <div class="header">
-              <img src="/fast-gestao-logo.png" alt="Fast Gestão Logo" style="height: 48px; margin: 0 auto 8px auto; display: block;" />
-              <div class="title">Comprovante de Entrega Digital</div>
-              <div style="font-size: 11px; color: #64748b;">Isolamento de Segurança: ${company.nome}</div>
-            </div>
-
-            <div class="grid-2 section">
-              <div>
-                <span class="label">Nota Fiscal</span>
-                <div class="val">${selectedDelivery.numeroNF}</div>
-              </div>
-              <div>
-                <span class="label">Número Pedido</span>
-                <div class="val">${selectedDelivery.numeroPedido || 'N/A'}</div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Destinatário</div>
-              <div class="grid-2">
-                <div>
-                  <span class="label">Nome do Cliente</span>
-                  <div class="val">${selectedDelivery.cliente.nome}</div>
-                </div>
-                <div>
-                  <span class="label">Documento</span>
-                  <div class="val">${selectedDelivery.cliente.documento || 'NÃO INFORMADO'}</div>
-                </div>
-              </div>
-              <div style="margin-top: 8px;">
-                <span class="label">Endereço de Entrega</span>
-                <div class="val">${selectedDelivery.endereco.ruaNumero}, Nº ${selectedDelivery.endereco.numero}</div>
-                <div class="val" style="font-size:11px; font-weight:normal; color:#475569;">
-                  Bairro: ${selectedDelivery.endereco.bairro} | Cidade: ${selectedDelivery.endereco.cidade} | CEP: ${selectedDelivery.endereco.cep}
-                </div>
-              </div>
-            </div>
-
-            <div class="grid-2 section">
-              <div>
-                <span class="label">Volumes Entregues</span>
-                <div class="val">${selectedDelivery.volumes} Vol(s)</div>
-              </div>
-              <div>
-                <span class="label">Valor Cobrado</span>
-                <div class="val">${formatCurrency(selectedDelivery.valorVenda)}</div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Informações de Entrega</div>
-              <div class="grid-2">
-                <div>
-                  <span class="label">Nome do Recebedor</span>
-                  <div class="val">${selectedDelivery.comprovante?.recebedorNome || selectedDelivery.cliente.nome}</div>
-                </div>
-                <div>
-                  <span class="label">Entregador Responsável</span>
-                  <div class="val">${selectedDelivery.comprovante?.entregadorNome || driverObj?.nome || 'Designado'}</div>
-                </div>
-              </div>
-              <div style="margin-top: 8px;" class="grid-2">
-                <div>
-                  <span class="label">Data / Hora Conclusão</span>
-                  <div class="val">${selectedDelivery.comprovante?.dataHoraEntrega && !isNaN(new Date(selectedDelivery.comprovante.dataHoraEntrega).getTime()) ? new Date(selectedDelivery.comprovante.dataHoraEntrega).toLocaleString('pt-BR') : '-'}</div>
-                </div>
-                <div>
-                  <span class="label">Localização de Precisão GPS</span>
-                  <div class="val" style="font-family: monospace; font-size:11px;">
-                    ${selectedDelivery.comprovante?.latitudeEntrega?.toFixed(6) || 'N/A'}, ${selectedDelivery.comprovante?.longitudeEntrega?.toFixed(6) || 'N/A'}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div class="section-title">Comprovação Operacional</div>
-              <div class="grid-2">
-                <div>
-                  <span class="label">Assinatura Digital</span>
-                  <div class="signature-box">
-                    ${selectedDelivery.comprovante?.assinaturaUrl ? `<img class="signature-img" src="${selectedDelivery.comprovante.assinaturaUrl}"/>` : '<span style="font-size:11px;color:#94a3b8;">Ausente</span>'}
-                  </div>
-                </div>
-                <div>
-                  <span class="label">Foto do Produto no Local</span>
-                  <div class="photo-box">
-                    ${selectedDelivery.comprovante?.fotoProdutoUrl ? `<img class="photo-img" src="${selectedDelivery.comprovante.fotoProdutoUrl}"/>` : '<span style="font-size:11px;color:#94a3b8;">Ausente</span>'}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="footer">
-              Este comprovante possui autenticação criptográfica local da FastGestão.<br/>
-              Processado em ambiente seguro com isolamento de dados multitenant.
-            </div>
-          </div>
-          <script>
-            window.onload = function() { window.print(); }
-          </script>
-        </body>
-      </html>
-    `;
+    const html = generateA4ReceiptHtml(selectedDelivery, company, driverObj?.nome);
 
     printWindow.document.write(html);
     printWindow.document.close();
   };
 
   return (
-    <div className="h-full flex bg-slate-950 font-sans text-slate-100 overflow-hidden">
+    <div className="h-full flex bg-[#F5F7FA] font-sans text-slate-800 overflow-hidden">
       
-      {/* SIDEBAR NAVIGATION (REQ 2 & 3) */}
+      {/* SIDEBAR NAVIGATION */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         userRole={currentUser.role}
         enabledModules={company.enabledModules || {}}
+        companyName={company.nome}
+        userName={currentUser.nome}
+        userRoleName={currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'master' ? 'Super Admin' : 'Operador'}
+        unreadNotificationsCount={5}
       />
 
       {/* MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#F5F7FA]">
         
-        {/* CLEAN UNIFIED HEADER (REQ 2, 3 & 8) */}
-        <header className="bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3 flex items-center justify-between shrink-0 select-none print:hidden shadow-md">
+        {/* CLEAN UNIFIED HEADER */}
+        <header className="bg-white border-b border-slate-200/80 px-4 md:px-6 py-3 flex items-center justify-between shrink-0 select-none print:hidden shadow-xs text-slate-800">
           {/* NOME DA EMPRESA LOGADA */}
           <div className="flex items-center gap-2.5">
-            <Building className="w-4 h-4 text-amber-500" />
-            <h1 className="text-sm md:text-base font-bold text-white tracking-tight truncate max-w-[200px] sm:max-w-none">
-              {company.nome}
-            </h1>
+            <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 font-bold">
+              <Building className="w-4 h-4" />
+            </div>
+            <div className="flex items-center gap-1.5 cursor-pointer">
+              <h1 className="text-sm md:text-base font-extrabold text-slate-900 tracking-tight truncate max-w-[200px] sm:max-w-none">
+                {company.nome}
+              </h1>
+              <ChevronDown className="w-4 h-4 text-slate-400" />
+            </div>
           </div>
 
-          {/* RIGHT CONTROLS: USUÁRIO LOGADO, ESCANEAR QR CODE, SAIR */}
-          <div className="flex items-center gap-2 md:gap-3">
+          {/* RIGHT CONTROLS: USUÁRIO LOGADO, ESCANEAR QR CODE, NOTIFICAÇÕES, SAIR */}
+          <div className="flex items-center gap-2.5 md:gap-3">
             {/* USUÁRIO LOGADO */}
             <div className="hidden sm:flex flex-col text-right">
-              <span className="text-xs font-bold text-white leading-tight">{currentUser.nome}</span>
-              <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">
-                {currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'master' ? 'Super Admin' : 'Operador'}
+              <span className="text-xs font-bold text-slate-900 leading-tight">{currentUser.nome}</span>
+              <span className="text-[10px] text-amber-600 font-extrabold uppercase tracking-wider">
+                {currentUser.role === 'admin' ? 'ADMINISTRADOR' : currentUser.role === 'master' ? 'SUPER ADMIN' : 'OPERADOR'}
               </span>
             </div>
 
-            {/* BOTÃO ESCANEAR QR CODE */}
+            {/* NOTIFICAÇÕES BELL */}
             <button
-              onClick={() => setShowScannerModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 transition-all rounded-xl text-xs font-bold shadow-sm"
-              title="Escanear QR Code de Comprovante"
+              onClick={() => setActiveTab('entregas')}
+              className="relative p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-slate-700 rounded-xl transition-all shadow-xs"
+              title="Notificações"
             >
-              <QrCode className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Escanear QR Code</span>
+              <Bell className="w-4 h-4 text-slate-600" />
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white font-black text-[9px] rounded-full flex items-center justify-center border-2 border-white">
+                5
+              </span>
             </button>
 
             {/* BOTÃO SAIR */}
             <button
               onClick={onLogout}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/30 hover:bg-red-900/40 text-red-400 border border-red-900/40 transition-all rounded-xl text-xs font-bold shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 transition-all rounded-xl text-xs font-bold shadow-xs"
               title="Sair do Sistema"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-3.5 h-3.5 text-rose-600" />
               <span className="hidden sm:inline">Sair</span>
             </button>
           </div>
         </header>
 
       {/* CORE WORKSPACE PANEL */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+      <div className="flex-1 overflow-y-auto page-content">
         
         {/* TAB 1: ENTREGAS WORKSPACE */}
         {activeTab === 'entregas' && (
           <div className="space-y-6">
             
             {/* 1. BENTO STATISTICS GRID FOR THE CURRENT FILTER DATE */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              <div className="bg-slate-900 border border-slate-800/60 p-3.5 rounded-xl flex flex-col justify-between shadow-sm">
-                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Entregas do Dia</span>
-                <span className="text-2xl font-black text-white mt-1">{stats.total}</span>
-                <span className="text-[10px] text-slate-400 mt-1">No período selecionado</span>
+            <div className="kpi-grid">
+              {/* Card 1: Entregas do Dia */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden border-t-4 border-t-blue-600 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ENTREGAS DO DIA</span>
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-slate-900">{stats.total}</div>
+                <div className="text-[11px] text-slate-400 font-medium mt-1">No período selecionado</div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800/60 p-3.5 rounded-xl flex flex-col justify-between shadow-sm">
-                <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider block">Em Separação/Aguardando</span>
-                <span className="text-2xl font-black text-white mt-1">{stats.awaiting}</span>
-                <span className="text-[10px] text-slate-400 mt-1">Aguardando motorista</span>
+              {/* Card 2: Em Separação / Aguardando */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden border-t-4 border-t-purple-600 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">EM SEPARAÇÃO</span>
+                  <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                    <Package className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-slate-900">{stats.awaiting}</div>
+                <div className="text-[11px] text-slate-400 font-medium mt-1">Aguardando motorista</div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800/60 p-3.5 rounded-xl flex flex-col justify-between shadow-sm">
-                <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block">Em Rota</span>
-                <span className="text-2xl font-black text-cyan-400 mt-1">{stats.inRoute}</span>
-                <span className="text-[10px] text-slate-400 mt-1">Em trânsito urbano</span>
+              {/* Card 3: Em Rota */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden border-t-4 border-t-cyan-500 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">EM ROTA</span>
+                  <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0">
+                    <Truck className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-slate-900">{stats.inRoute}</div>
+                <div className="text-[11px] text-slate-400 font-medium mt-1">Em trânsito urbano</div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800/60 p-3.5 rounded-xl flex flex-col justify-between shadow-sm">
-                <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Entregues</span>
-                <span className="text-2xl font-black text-emerald-400 mt-1">{stats.delivered}</span>
-                <span className="text-[10px] text-slate-400 mt-1">Comprovante anexado</span>
+              {/* Card 4: Entregues */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden border-t-4 border-t-emerald-500 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ENTREGUES</span>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-slate-900">{stats.delivered}</div>
+                <div className="text-[11px] text-slate-400 font-medium mt-1">Comprovante anexado</div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800/60 p-3.5 rounded-xl flex flex-col justify-between shadow-sm">
-                <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider block">Falhas / Canceladas</span>
-                <span className="text-2xl font-black text-white mt-1">{stats.failed + stats.canceled}</span>
-                <span className="text-[10px] text-slate-400 mt-1">Devolvidas à loja</span>
+              {/* Card 5: Falhas / Canceladas */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden border-t-4 border-t-rose-500 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">FALHAS / CANCELADAS</span>
+                  <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                    <XCircle className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-slate-900">{stats.failed + stats.canceled}</div>
+                <div className="text-[11px] text-slate-400 font-medium mt-1">Devolvidas à loja</div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800/60 p-3.5 rounded-xl flex flex-col justify-between shadow-sm">
-                <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider block">Entregas Atrasadas</span>
-                <span className={`text-2xl font-black mt-1 ${stats.delayed > 0 ? 'text-amber-500 animate-pulse' : 'text-slate-500'}`}>{stats.delayed}</span>
-                <span className="text-[10px] text-slate-400 mt-1">Agendamento vencido</span>
+              {/* Card 6: Entregas Atrasadas */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden border-t-4 border-t-amber-500 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ATRASADAS</span>
+                  <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-slate-900">{stats.delayed}</div>
+                <div className="text-[11px] text-slate-400 font-medium mt-1">Agendamento vencido</div>
               </div>
             </div>
 
             {/* FINANCIAL STATS */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-900/40 p-4 rounded-xl border border-slate-800/80">
+            <div className="financial-grid shadow-xs">
               <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Total Recebido Hoje (Em Campo)</span>
-                <span className="text-lg font-black text-amber-500 mt-0.5">{formatCurrency(stats.totalCollected)}</span>
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">TOTAL RECEBIDO HOJE (EM CAMPO)</span>
+                <span className="text-xl font-extrabold text-amber-600 mt-1.5">{formatCurrency(stats.totalCollected)}</span>
               </div>
-              <div className="flex flex-col border-l border-slate-800/80 pl-4">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Espécie (Dinheiro)</span>
-                <span className="text-sm font-bold text-slate-300 mt-0.5">{formatCurrency(stats.cash)}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">ESPÉCIE (DINHEIRO)</span>
+                <span className="text-base font-bold text-slate-800 mt-1.5">{formatCurrency(stats.cash)}</span>
               </div>
-              <div className="flex flex-col border-l border-slate-800/80 pl-4">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">PIX Instantâneo</span>
-                <span className="text-sm font-bold text-slate-300 mt-0.5">{formatCurrency(stats.pix)}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">PIX INSTANTÂNEO</span>
+                <span className="text-base font-bold text-slate-800 mt-1.5">{formatCurrency(stats.pix)}</span>
               </div>
-              <div className="flex flex-col border-l border-slate-800/80 pl-4">
-                <span className="text-[10px] text-slate-500 font-bold uppercase">Maquininha (Cartões)</span>
-                <span className="text-sm font-bold text-slate-300 mt-0.5">{formatCurrency(stats.card)}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">MAQUININHA (CARTÕES)</span>
+                <span className="text-base font-bold text-slate-800 mt-1.5">{formatCurrency(stats.card)}</span>
               </div>
             </div>
 
             {/* FILTERS AND CONTROLS PANEL */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-3">
-                
-                {/* Date View Mode */}
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-amber-500 uppercase mb-1">Visualização</span>
-                  <select
-                    value={dateViewMode}
-                    onChange={(e) => setDateViewMode(e.target.value as any)}
-                    className="bg-slate-950 border border-amber-500/40 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="hoje">Entregas de Hoje</option>
-                    <option value="data_selecionada">Data Específica</option>
-                    <option value="agendadas">Agendadas / Futuras</option>
-                    <option value="todas">Todas as Datas</option>
-                  </select>
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs filters-grid">
+              {/* Date View Mode */}
+              <div className="flex flex-col w-full">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">VISUALIZAÇÃO</span>
+                <select
+                  value={dateViewMode}
+                  onChange={(e) => setDateViewMode(e.target.value as any)}
+                  className="w-full bg-slate-50 border border-slate-200 text-xs px-3 py-2 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="hoje">Entregas de Hoje</option>
+                  <option value="data_selecionada">Data Específica</option>
+                  <option value="agendadas">Agendadas / Futuras</option>
+                  <option value="todas">Todas as Datas</option>
+                </select>
+              </div>
+
+              {/* Date select */}
+              {dateViewMode === 'data_selecionada' ? (
+                <div className="flex flex-col w-full">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">DATA ESPECÍFICA</span>
+                  <input
+                    type="date"
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 text-xs px-3 py-2 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-amber-500"
+                  />
                 </div>
-
-                {/* Date select */}
-                {dateViewMode === 'data_selecionada' && (
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase mb-1">Data Específica</span>
-                    <input
-                      type="date"
-                      value={dateFilter}
-                      onChange={(e) => setDateFilter(e.target.value)}
-                      className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
-                )}
-
-                {/* Status select */}
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase mb-1">Status</span>
+              ) : (
+                /* Status select */
+                <div className="flex flex-col w-full">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">STATUS</span>
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-50 border border-slate-200 text-xs px-3 py-2 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
                   >
                     <option value="todas">Todos os Status</option>
                     <option value="venda_realizada">Venda Realizada</option>
@@ -1046,166 +957,185 @@ export default function OperatorPanel({
                     <option value="cancelada">Canceladas</option>
                   </select>
                 </div>
+              )}
 
-                {/* Driver filter */}
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase mb-1">Entregador</span>
-                  <select
-                    value={driverFilter}
-                    onChange={(e) => setDriverFilter(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 text-xs px-3 py-1.5 rounded-lg text-white font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
-                  >
-                    <option value="todos">Todos os Entregadores ({availableDrivers.length})</option>
-                    {availableDrivers.map(d => (
-                      <option key={d.id} value={d.id}>{d.nome}</option>
-                    ))}
-                  </select>
-                </div>
-
+              {/* Driver filter */}
+              <div className="flex flex-col w-full">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">ENTREGADOR</span>
+                <select
+                  value={driverFilter}
+                  onChange={(e) => setDriverFilter(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 text-xs px-3 py-2 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="todos">Todos ({availableDrivers.length})</option>
+                  {availableDrivers.map(d => (
+                    <option key={d.id} value={d.id}>{d.nome}</option>
+                  ))}
+                </select>
               </div>
 
-              {/* SEARCH BOX & ADD BUTTON */}
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1 md:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              {/* SEARCH BOX */}
+              <div className="filters-search w-full">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">PESQUISA RÁPIDA</span>
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Pesquisar NF, Pedido, Cliente..."
-                    className="w-full pl-9 pr-4 py-1.5 bg-slate-950 border border-slate-800 text-xs text-white rounded-lg focus:outline-none focus:border-amber-500"
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 text-xs text-slate-800 rounded-xl focus:outline-none focus:border-amber-500 font-medium placeholder:text-slate-400"
                   />
                 </div>
+              </div>
 
+              {/* ADD BUTTON */}
+              <div className="new-delivery-button">
                 <button
                   onClick={() => setShowAddModal(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 transition-all font-bold text-xs rounded-lg shadow-md shadow-amber-500/10 shrink-0"
+                  className="w-full flex items-center justify-center gap-2 px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs rounded-xl shadow-xs transition-all shrink-0 active:scale-98 cursor-pointer h-[38px]"
                 >
-                  <Plus className="w-4 h-4" />
-                  Nova Entrega
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span className="whitespace-nowrap">Nova Entrega</span>
                 </button>
               </div>
             </div>
 
-            {/* SPLIT VIEW LIST AND DETAIL SIDEBAR */}
+            {/* SPLIT VIEW LIST AND DETAILS PANEL */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
               {/* Deliveries list container */}
-              <div className="lg:col-span-2 space-y-3">
-                {filteredDeliveries.length === 0 ? (
-                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-12 text-center text-slate-500">
-                    <Package className="w-12 h-12 text-slate-700 mx-auto mb-3" />
-                    <h3 className="font-bold text-white text-sm mb-1">Nenhuma entrega cadastrada</h3>
-                    <p className="text-xs max-w-sm mx-auto">Não há entregas correspondentes para a data e filtros selecionados. Cadastre uma nova entrega para começar!</p>
+              <div className={selectedDelivery ? "lg:col-span-2 space-y-4" : "lg:col-span-3 space-y-4"}>
+                <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
+                  <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <List className="w-4 h-4 text-amber-500" />
+                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">ENTREGAS RECENTES</h3>
+                    </div>
+                    <span className="text-xs font-bold text-slate-500">{filteredDeliveries.length} registros</span>
                   </div>
-                ) : (
-                  filteredDeliveries.map(delivery => {
-                    const mappedStatus = statusMap[delivery.status];
-                    const driverObj = drivers.find(drv => drv.id === delivery.motoristaId);
-                    
-                    return (
-                      <div
-                        key={delivery.id}
-                        onClick={() => setSelectedDelivery(delivery)}
-                        className={`p-4 bg-slate-900 border rounded-xl cursor-pointer hover:border-amber-500/50 hover:bg-slate-900/80 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${selectedDelivery?.id === delivery.id ? 'border-amber-500 ring-1 ring-amber-500/30' : 'border-slate-800/80'}`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <span className="text-xs font-bold text-white">NF {delivery.numeroNF}</span>
-                            {delivery.numeroPedido && (
-                              <span className="text-[10px] text-slate-500 font-mono">Ped: {delivery.numeroPedido}</span>
-                            )}
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${mappedStatus.color} ${mappedStatus.bg}`}>
-                              {mappedStatus.label}
-                            </span>
-                            {delivery.prioridade === 'alta' && (
-                              <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-red-950 border border-red-900 text-red-400">URGENTE</span>
-                            )}
-                          </div>
 
-                          <h3 className="font-bold text-xs text-white truncate">{delivery.cliente.nome}</h3>
-                          <p className="text-[11px] text-slate-400 mt-1 truncate">
-                            {delivery.endereco.ruaNumero}, Nº {delivery.endereco.numero} — {delivery.endereco.bairro}
-                          </p>
-                        </div>
+                  {filteredDeliveries.length === 0 ? (
+                    <div className="p-12 text-center text-slate-500">
+                      <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <h3 className="font-bold text-slate-800 text-sm mb-1">Nenhuma entrega cadastrada</h3>
+                      <p className="text-xs max-w-sm mx-auto text-slate-500">Não há entregas correspondentes para a data e filtros selecionados.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
+                          <tr>
+                            <th className="p-3 w-8 text-center">
+                              <input type="checkbox" className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer" />
+                            </th>
+                            <th className="p-3">ENTREGA</th>
+                            <th className="p-3">CLIENTE</th>
+                            <th className="p-3">ENTREGADOR</th>
+                            <th className="p-3">STATUS</th>
+                            <th className="p-3">PREVISÃO</th>
+                            <th className="p-3 text-right">AÇÕES</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredDeliveries.map(delivery => {
+                            const mappedStatus = statusMap[delivery.status];
+                            const driverObj = drivers.find(drv => drv.id === delivery.motoristaId);
+                            
+                            return (
+                              <tr
+                                key={delivery.id}
+                                onClick={() => setSelectedDelivery(delivery)}
+                                className={`hover:bg-slate-50/80 cursor-pointer transition-colors ${selectedDelivery?.id === delivery.id ? 'bg-amber-50/50' : ''}`}
+                              >
+                                <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <input type="checkbox" className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer" />
+                                </td>
+                                <td className="p-3">
+                                  <div className="font-extrabold text-blue-600">#{delivery.id.slice(-5)}</div>
+                                  <div className="text-[10px] text-slate-500 font-medium">NF {delivery.numeroNF}</div>
+                                </td>
+                                <td className="p-3">
+                                  <div className="font-bold text-slate-900">{delivery.cliente.nome}</div>
+                                  <div className="text-[10px] text-slate-500 truncate max-w-[150px]">
+                                    Ped: {delivery.numeroPedido || 'N/A'}
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                      {delivery.entregadorNome?.charAt(0) || 'M'}
+                                    </div>
+                                    <span className="font-semibold text-slate-800 text-xs truncate max-w-[100px]">
+                                      {delivery.entregadorNome || 'Não atribuído'}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase border ${
+                                    delivery.status === 'em_rota' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                    delivery.status === 'entregue' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                    delivery.status === 'separacao' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                    delivery.status === 'cancelada' || delivery.status === 'nao_entregue' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                    'bg-amber-50 text-amber-800 border-amber-200'
+                                  }`}>
+                                    {mappedStatus.label}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-600 font-medium text-[11px]">
+                                  <div>{formatDate(delivery.dataAgendada || delivery.dataCriacao)}</div>
+                                </td>
+                                <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => setSelectedDelivery(delivery)}
+                                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+                                  >
+                                    <MoreHorizontal className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
-                        {/* Middle metadata column */}
-                        <div className="flex items-center gap-6 shrink-0 text-xs">
-                          <div className="flex flex-col text-slate-500">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600">Volume(s)</span>
-                            <span className="font-bold text-slate-300 font-mono">{delivery.volumes} vol</span>
-                          </div>
-
-                          <div className="flex flex-col text-slate-500" onClick={(e) => e.stopPropagation()}>
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-600 mb-0.5">Motorista</span>
-                            <select
-                              value={delivery.motoristaId || delivery.entregadorId || ''}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                const selectedId = e.target.value || undefined;
-                                const assocUser = users.find(u => u.motoristaId === selectedId || u.id === selectedId);
-                                const drvObj = availableDrivers.find(drv => drv.id === selectedId);
-                                const updates: any = {
-                                  motoristaId: selectedId,
-                                  entregadorId: assocUser?.id || drvObj?.id || selectedId || undefined,
-                                  entregadorNome: drvObj?.nome || assocUser?.nome || undefined
-                                };
-                                if (selectedId && (delivery.status === 'venda_realizada' || delivery.status === 'nf_emitida' || delivery.status === 'separacao')) {
-                                  updates.status = 'aguardando_motorista';
-                                }
-                                onUpdateDelivery(delivery.id, updates);
-                                if (selectedDelivery?.id === delivery.id) {
-                                  setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
-                                }
-                              }}
-                              className="bg-slate-950 border border-slate-700/80 hover:border-amber-500 text-amber-400 font-bold text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer max-w-[140px] truncate"
-                            >
-                              <option value="">-- Escalar --</option>
-                              {availableDrivers.map(drv => (
-                                <option key={drv.id} value={drv.id}>{drv.nome}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="flex flex-col text-right">
-                            <span className="text-xs font-black text-amber-500 font-mono">
-                              {formatCurrency(delivery.valorVenda)}
-                            </span>
-                            <span className={`text-[9px] font-bold uppercase mt-0.5 ${delivery.statusPagamento === 'pago' ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {delivery.statusPagamento === 'pago' ? 'PAGO' : 'C. ENTREGA'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+                  <div className="p-3 bg-slate-50 border-t border-slate-200 text-center">
+                    <button
+                      onClick={() => setActiveTab('relatorios')}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1"
+                    >
+                      Ver todas as entregas <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* ACTIVE DELIVERY DETAILS SIDEBAR */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm h-fit sticky top-4">
-                {selectedDelivery ? (
+              {selectedDelivery && (
+                <div className="lg:col-span-1 bg-white border border-slate-200/80 rounded-[18px] overflow-hidden shadow-xs h-fit sticky top-4 text-[#0F172A]">
                   <div className="flex flex-col">
-                    <div className="bg-slate-800 border-b border-slate-700 p-4 flex items-center justify-between">
+                    <div className="bg-[#F8FAFC] border-b border-slate-200 p-4 flex items-center justify-between">
                       <div>
-                        <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">DETALHES DA ENTREGA</span>
-                        <h2 className="text-sm font-bold text-white">NF {selectedDelivery.numeroNF}</h2>
+                        <span className="text-[10px] text-amber-600 font-extrabold uppercase tracking-wider">DETALHES DA ENTREGA</span>
+                        <h2 className="text-sm font-extrabold text-[#0F172A]">NF {selectedDelivery.numeroNF}</h2>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => {
                             setGpsTargetDeliveryId(selectedDelivery.id);
                             setActiveTab('rastreamentoGps');
                           }}
-                          className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-amber-300 text-xs font-bold rounded-lg transition-colors"
+                          className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                           title="Abrir no GPS em tempo real"
                         >
-                          <Navigation className="w-3.5 h-3.5 text-amber-400" />
-                          Ver no Mapa
+                          <Navigation className="w-3.5 h-3.5 text-amber-600" />
+                          Mapa
                         </button>
                         <button
                           onClick={() => handleOpenEditDeliveryModal(selectedDelivery)}
-                          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg transition-colors"
+                          className="flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                         >
                           <FileText className="w-3.5 h-3.5" />
                           Editar
@@ -1213,330 +1143,45 @@ export default function OperatorPanel({
                         {(currentUser.role === 'admin' || currentUser.role === 'master' || currentUser.role === 'operador') && (
                           <button
                             onClick={() => handleOpenDeleteDeliveryModal(selectedDelivery)}
-                            className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/20 border border-red-500/40 hover:bg-red-500/30 text-red-300 text-xs font-bold rounded-lg transition-colors"
+                            className="flex items-center gap-1 px-2 py-1 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
                             id="btn-delete-delivery"
                           >
                             <Trash className="w-3.5 h-3.5" />
-                            Excluir
                           </button>
                         )}
                         <button
                           onClick={() => setSelectedDelivery(null)}
-                          className="text-xs text-slate-400 hover:text-white px-2 py-1 bg-slate-900 rounded"
+                          className="text-xs text-slate-500 hover:text-slate-800 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer"
+                          title="Fechar"
                         >
-                          Fechar
+                          ✕
                         </button>
                       </div>
                     </div>
 
-                    <div className="p-4 space-y-4 text-xs">
-                      {/* Cliente */}
-                      <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-850">
-                        <span className="text-[9px] text-slate-500 font-bold uppercase">Destinatário</span>
-                        <h4 className="font-bold text-white text-xs mt-0.5">{selectedDelivery.cliente.nome}</h4>
-                        <p className="text-slate-400 mt-1 flex items-center gap-1">
-                          <Phone className="w-3.5 h-3.5 text-slate-500" />
-                          {selectedDelivery.cliente.telefone}
-                        </p>
-                        {selectedDelivery.cliente.whatsapp && (
-                          <p className="text-slate-400 mt-0.5 flex items-center gap-1">
-                            <span className="text-emerald-500 font-bold">W:</span>
-                            {selectedDelivery.cliente.whatsapp}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Endereço */}
-                      <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-850">
-                        <span className="text-[9px] text-slate-500 font-bold uppercase">Endereço de Entrega</span>
-                        <p className="font-medium text-slate-300 mt-0.5">
-                          {selectedDelivery.endereco.ruaNumero}, Nº {selectedDelivery.endereco.numero}
-                        </p>
-                        <p className="text-slate-400 mt-0.5">
-                          {selectedDelivery.endereco.bairro} — {selectedDelivery.endereco.cidade}{selectedDelivery.endereco.estado ? ` / ${selectedDelivery.endereco.estado}` : ''}
-                        </p>
-                        <p className="font-mono text-slate-500 mt-1">CEP: {selectedDelivery.endereco.cep}</p>
-                        {selectedDelivery.endereco.complemento && (
-                          <p className="mt-2 bg-amber-950/30 text-amber-400 border border-amber-900/40 p-2 rounded text-[11px]">
-                            <span className="font-bold">Compl:</span> {selectedDelivery.endereco.complemento}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Volumes, Price, Frete */}
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="bg-slate-950/40 p-2 rounded-lg border border-slate-850 text-center">
-                          <span className="text-[9px] text-slate-500 font-bold uppercase">Volumes</span>
-                          <span className="block font-bold text-white mt-0.5 font-mono">{selectedDelivery.volumes} vol</span>
-                        </div>
-                        <div className="bg-slate-950/40 p-2 rounded-lg border border-slate-850 text-center">
-                          <span className="text-[9px] text-slate-500 font-bold uppercase">Valor Venda</span>
-                          <span className="block font-bold text-amber-500 mt-0.5 font-mono">{formatCurrency(selectedDelivery.valorVenda)}</span>
-                        </div>
-                        <div className="bg-slate-950/40 p-2 rounded-lg border border-slate-850 text-center">
-                          <span className="text-[9px] text-slate-500 font-bold uppercase">Frete</span>
-                          <span className="block font-bold text-slate-300 mt-0.5 font-mono">
-                            {selectedDelivery.valorFrete ? formatCurrency(selectedDelivery.valorFrete) : 'Grátis'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Payment & Priority Interactive Controls */}
-                      <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-850 space-y-3">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Forma Pagamento</span>
-                            <select
-                              value={selectedDelivery.formaPagamento}
-                              onChange={(e) => {
-                                const val = e.target.value as FormaPagamento;
-                                onUpdateDelivery(selectedDelivery.id, { formaPagamento: val });
-                                setSelectedDelivery(prev => prev ? { ...prev, formaPagamento: val } : null);
-                              }}
-                              className="w-full bg-slate-900 border border-slate-700/80 text-white font-bold text-xs rounded px-2 py-1.5 focus:outline-none focus:border-amber-500 cursor-pointer"
-                            >
-                              <option value="ja_pago" className="bg-slate-900 text-white">Já Pago no Site/Loja</option>
-                              <option value="pix" className="bg-slate-900 text-white">PIX na entrega</option>
-                              <option value="dinheiro" className="bg-slate-900 text-white">Dinheiro na entrega</option>
-                              <option value="cartao_credito" className="bg-slate-900 text-white">Cartão de Crédito</option>
-                              <option value="cartao_debito" className="bg-slate-900 text-white">Cartão de Débito</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Status Pagamento</span>
-                            <select
-                              value={selectedDelivery.statusPagamento}
-                              onChange={(e) => {
-                                const val = e.target.value as StatusPagamento;
-                                onUpdateDelivery(selectedDelivery.id, { statusPagamento: val });
-                                setSelectedDelivery(prev => prev ? { ...prev, statusPagamento: val } : null);
-                              }}
-                              className={`w-full font-bold text-xs rounded px-2 py-1.5 border focus:outline-none cursor-pointer ${
-                                selectedDelivery.statusPagamento === 'pago' 
-                                  ? 'bg-emerald-950/80 border-emerald-800 text-emerald-300' 
-                                  : 'bg-red-950/80 border-red-800 text-red-300'
-                              }`}
-                            >
-                              <option value="pago" className="bg-slate-900 text-emerald-400">PAGO / RECEBIDO</option>
-                              <option value="receber_na_entrega" className="bg-slate-900 text-red-400">RECEBER NA ENTREGA</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <div>
-                          <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Prioridade</span>
-                          <select
-                            value={selectedDelivery.prioridade || 'media'}
-                            onChange={(e) => {
-                              const val = e.target.value as any;
-                              onUpdateDelivery(selectedDelivery.id, { prioridade: val });
-                              setSelectedDelivery(prev => prev ? { ...prev, prioridade: val } : null);
-                            }}
-                            className="w-full bg-slate-900 border border-slate-700/80 text-amber-400 font-bold text-xs rounded px-2 py-1.5 focus:outline-none focus:border-amber-500 cursor-pointer"
-                          >
-                            <option value="baixa" className="bg-slate-900 text-slate-300">Baixa</option>
-                            <option value="media" className="bg-slate-900 text-white">Média</option>
-                            <option value="alta" className="bg-slate-900 text-red-400">Alta / Urgente</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* QR Code integration display (Click to scan simulation) */}
-                      <div className="border border-slate-850 p-3 rounded-lg bg-slate-950/40 flex items-center gap-3">
-                        <QrCodeGenerator 
-                          value={selectedDelivery.id} 
-                          size={60} 
-                          onClick={() => {
-                            setSelectedDelivery(selectedDelivery);
-                            alert(`QR Code correspondente à NF ${selectedDelivery.numeroNF}.`);
-                          }}
-                        />
-                        <div>
-                          <span className="text-[9px] text-slate-500 font-bold uppercase block">Etiqueta de Precisão</span>
-                          <p className="text-[10px] text-slate-400 mt-0.5">Escaneie para carregar esta entrega instantaneamente.</p>
-                        </div>
-                      </div>
-
-                      {/* STEP STATE MANAGER - ADVANCE AND MANAGE DELIVERY */}
-                      {selectedDelivery.status !== 'entregue' && selectedDelivery.status !== 'cancelada' ? (
-                        <div className="border-t border-slate-800 pt-4 space-y-3">
-                          <span className="text-[9px] text-slate-500 font-bold uppercase block">Fluxo da Entrega</span>
-                          
-                          {/* Next Status button progression */}
-                          <div className="flex flex-col gap-2">
-                            {selectedDelivery.status === 'venda_realizada' && (
-                              <button
-                                onClick={() => handleAdvanceStatus('nf_emitida')}
-                                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg"
-                              >
-                                Emitir Nota Fiscal
-                              </button>
-                            )}
-                            {selectedDelivery.status === 'nf_emitida' && (
-                              <button
-                                onClick={() => handleAdvanceStatus('separacao')}
-                                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg"
-                              >
-                                Enviar para Separação
-                              </button>
-                            )}
-                            {selectedDelivery.status === 'separacao' && (
-                              <button
-                                onClick={() => handleAdvanceStatus('aguardando_motorista')}
-                                className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg"
-                              >
-                                Finalizar Separação (Aguardando Motorista)
-                              </button>
-                            )}
-                            {selectedDelivery.status === 'aguardando_motorista' && (
-                              <div className="p-2.5 bg-slate-950 text-purple-400 border border-purple-900/40 rounded-lg text-center">
-                                Aguardando o motorista iniciar a entrega via celular
-                              </div>
-                            )}
-                            {selectedDelivery.status === 'em_rota' && (
-                              <div className="p-2.5 bg-slate-950 text-cyan-400 border border-cyan-900/40 rounded-lg text-center">
-                                Motorista em rota de entrega urbana...
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Driver Assignment Dropdown */}
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase block">Motorista Responsável / Entregador</label>
-                            <select
-                              value={selectedDelivery.motoristaId || selectedDelivery.entregadorId || ''}
-                              onChange={(e) => {
-                                const selectedId = e.target.value || undefined;
-                                const assocUser = users.find(u => u.motoristaId === selectedId || u.id === selectedId);
-                                const drvObj = availableDrivers.find(drv => drv.id === selectedId);
-                                const updates: any = {
-                                  motoristaId: selectedId,
-                                  entregadorId: assocUser?.id || drvObj?.id || selectedId || undefined,
-                                  entregadorNome: drvObj?.nome || assocUser?.nome || undefined
-                                };
-                                // If assigning a driver to a pending prep delivery, advance status to ready/awaiting driver
-                                if (selectedId && (selectedDelivery.status === 'venda_realizada' || selectedDelivery.status === 'nf_emitida' || selectedDelivery.status === 'separacao')) {
-                                  updates.status = 'aguardando_motorista';
-                                }
-                                onUpdateDelivery(selectedDelivery.id, updates);
-                                setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
-                              }}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs font-bold focus:outline-none focus:border-amber-500 text-amber-400 cursor-pointer"
-                            >
-                              <option value="">-- Selecionar Motorista --</option>
-                              {availableDrivers.map(drv => (
-                                <option key={drv.id} value={drv.id}>{drv.nome} ({drv.telefone || 'Sem tel'})</option>
-                              ))}
-                            </select>
-                            {availableDrivers.length === 0 && (
-                              <p className="text-[10px] text-amber-400 mt-1">
-                                ⚠️ Nenhum entregador cadastrado na empresa.
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Order Index */}
-                          <div className="space-y-1">
-                            <label className="text-[9px] font-bold text-slate-500 uppercase block">Ordem na Rota</label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={selectedDelivery.ordemRota || ''}
-                              onChange={(e) => {
-                                onUpdateDelivery(selectedDelivery.id, { ordemRota: Number(e.target.value) || undefined });
-                                setSelectedDelivery(prev => prev ? { ...prev, ordemRota: Number(e.target.value) || undefined } : null);
-                              }}
-                              placeholder="Posição na rota (Ex: 1)"
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs focus:outline-none focus:border-amber-500 text-white font-mono"
-                            />
-                          </div>
-
-                          {/* Cancel button */}
-                          <button
-                            onClick={() => setShowCancelModal(true)}
-                            className="w-full py-2 bg-red-950/30 text-red-400 border border-red-900/30 hover:bg-red-950/50 transition-colors rounded-lg font-bold text-xs"
-                          >
-                            Cancelar Entrega
-                          </button>
-                        </div>
-                      ) : (
-                        /* Concluding Proof view */
-                        selectedDelivery.status === 'entregue' ? (
-                          <div className="border-t border-slate-800 pt-4 space-y-3">
-                            <h4 className="text-emerald-400 font-bold flex items-center gap-1 uppercase text-[10px]">
-                              <FileCheck className="w-4 h-4" /> Comprovante Assinado Salvo
-                            </h4>
-
-                            {selectedDelivery.comprovante?.fotoProdutoUrl && (
-                              <div className="rounded-lg overflow-hidden border border-slate-800 h-32 bg-slate-950">
-                                <img 
-                                  src={selectedDelivery.comprovante.fotoProdutoUrl} 
-                                  alt="Foto entrega"
-                                  className="w-full h-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
-                            )}
-
-                            {selectedDelivery.comprovante?.assinaturaUrl && (
-                              <div className="rounded-lg border border-slate-800 bg-white p-2 flex items-center justify-center">
-                                <img 
-                                  src={selectedDelivery.comprovante.assinaturaUrl} 
-                                  alt="Assinatura"
-                                  className="h-16 max-w-full object-contain"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
-                            )}
-
-                            <div className="bg-slate-950/40 p-2.5 rounded-lg border border-slate-850 font-mono text-[10px] space-y-1 text-slate-400">
-                              <p><span className="text-white">Recebedor:</span> {selectedDelivery.comprovante?.recebedorNome || selectedDelivery.cliente.nome}</p>
-                              {selectedDelivery.comprovante?.documentoRecebedor && (
-                                <p><span className="text-white">Documento:</span> {selectedDelivery.comprovante.documentoRecebedor}</p>
-                              )}
-                              <p><span className="text-white">Data/Hora:</span> {formatDateTime(selectedDelivery.comprovante?.dataHoraEntrega)}</p>
-                              {selectedDelivery.comprovante?.latitudeEntrega != null && (
-                                <p><span className="text-white">GPS:</span> {Number(selectedDelivery.comprovante.latitudeEntrega).toFixed(6)}, {Number(selectedDelivery.comprovante.longitudeEntrega || 0).toFixed(6)}</p>
-                              )}
-                              {selectedDelivery.comprovante?.observacaoEntrega && (
-                                <p className="text-amber-400 font-sans italic mt-1"><span className="text-white font-mono not-italic">Obs Entregador:</span> "{selectedDelivery.comprovante.observacaoEntrega}"</p>
-                              )}
-                            </div>
-
-                            <button
-                              onClick={printOfficialReceipt}
-                              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-amber-500 font-bold rounded-lg flex items-center justify-center gap-1.5 border border-slate-700"
-                            >
-                              <Printer className="w-3.5 h-3.5" />
-                              Gerar Comprovante PDF
-                            </button>
-                          </div>
-                        ) : (
-                          // Cancelled
-                          <div className="border-t border-slate-800 pt-4 bg-slate-950/20 p-3 rounded-lg text-slate-400 text-xs italic">
-                            Cancelado: "{selectedDelivery.motivoNaoEntregue || 'Sem justificativa'}"
-                          </div>
-                        )
-                      )}
-
-                      {/* Operator observations */}
-                      {selectedDelivery.observacoes && (
-                        <div className="border-t border-slate-800 pt-3">
-                          <span className="text-[9px] text-slate-500 font-bold uppercase">Observações Operador</span>
-                          <p className="text-slate-400 italic mt-0.5">"{selectedDelivery.observacoes}"</p>
-                        </div>
-                      )}
+                    <div className="p-4 space-y-4">
+                      <DynamicDeliveryDetails
+                        delivery={selectedDelivery}
+                        company={company}
+                        drivers={availableDrivers}
+                        onUpdateDelivery={(id, updates) => {
+                          onUpdateDelivery(id, updates);
+                          setSelectedDelivery(prev => prev ? { ...prev, ...updates } : null);
+                        }}
+                        onClose={() => setSelectedDelivery(null)}
+                        onAdvanceStatus={handleAdvanceStatus}
+                        onShowCancelModal={() => setShowCancelModal(true)}
+                      />
 
                       {/* Audit Trail */}
                       {selectedDelivery.historico && selectedDelivery.historico.length > 0 && (
-                        <div className="border-t border-slate-850 pt-3">
-                          <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Linha do Tempo</span>
+                        <div className="border-t border-slate-200/80 pt-3">
+                          <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1 tracking-wider">Linha do Tempo</span>
                           <div className="space-y-2">
                             {selectedDelivery.historico.map(h => (
-                              <div key={h.id} className="border-l border-slate-800 pl-2 text-[10px] text-slate-500">
-                                <span className="font-bold text-slate-400">{h.statusNovo.toUpperCase()}</span>
-                                <span className="block">Por {h.alteradoPor} às {h.alteradoEm && !isNaN(new Date(h.alteradoEm).getTime()) ? new Date(h.alteradoEm).toLocaleTimeString('pt-BR') : '-'}</span>
+                              <div key={h.id} className="border-l-2 border-slate-300 pl-2 text-[10px] text-slate-500">
+                                <span className="font-bold text-slate-800">{h.statusNovo.toUpperCase()}</span>
+                                <span className="block text-slate-500">Por {h.alteradoPor} às {h.alteradoEm && !isNaN(new Date(h.alteradoEm).getTime()) ? new Date(h.alteradoEm).toLocaleTimeString('pt-BR') : '-'}</span>
                               </div>
                             ))}
                           </div>
@@ -1545,10 +1190,10 @@ export default function OperatorPanel({
 
                       {/* Excluir Entrega Action Button */}
                       {(currentUser.role === 'admin' || currentUser.role === 'master' || currentUser.role === 'operador') && (
-                        <div className="border-t border-slate-800 pt-3">
+                        <div className="border-t border-slate-200 pt-3">
                           <button
                             onClick={() => handleOpenDeleteDeliveryModal(selectedDelivery)}
-                            className="w-full py-2.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 transition-colors rounded-lg font-bold text-xs flex items-center justify-center gap-2"
+                            className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer"
                           >
                             <Trash className="w-4 h-4" />
                             Excluir Entrega do Sistema
@@ -1558,14 +1203,8 @@ export default function OperatorPanel({
 
                     </div>
                   </div>
-                ) : (
-                  <div className="p-8 text-center text-slate-500">
-                    <FileText className="w-12 h-12 mx-auto text-slate-700 mb-2" />
-                    <h3 className="font-bold text-white text-xs mb-1">Nenhuma entrega selecionada</h3>
-                    <p className="text-[11px] max-w-xs mx-auto">Clique em qualquer entrega na lista para carregar os controles de status, observações e comprovantes de assinatura digital.</p>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
 
             </div>
 
@@ -1831,16 +1470,22 @@ export default function OperatorPanel({
           };
 
           return (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-3">
-                <div>
-                  <h2 className="text-base font-bold text-white">Usuários & Credenciais do Sistema</h2>
-                  <p className="text-xs text-slate-400">Contas autorizadas para login na plataforma da empresa</p>
+            <div className="space-y-6">
+              {/* HEADER */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-500/10 text-amber-600 rounded-xl border border-amber-500/20 shrink-0">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base md:text-lg font-extrabold text-slate-900">Usuários & Credenciais do Sistema</h2>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">Contas autorizadas para login na plataforma da empresa</p>
+                  </div>
                 </div>
 
                 <button
                   onClick={() => setShowUserModal(true)}
-                  className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 transition-colors font-bold text-xs rounded-xl shadow-md shrink-0"
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-600 transition-colors font-extrabold text-xs rounded-xl shadow-xs shrink-0"
                 >
                   <UserPlus className="w-4 h-4" />
                   Criar Acesso
@@ -1848,26 +1493,26 @@ export default function OperatorPanel({
               </div>
 
               {/* ACTION BAR FOR SELECTED USERS */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-3">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 hover:border-slate-700">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors">
                     <input
                       type="checkbox"
                       checked={isAllSelected}
                       onChange={(e) => handleSelectAll(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900 cursor-pointer"
+                      className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 bg-white cursor-pointer"
                     />
                     <span>Selecionar Todos</span>
                   </label>
 
-                  <div className="text-xs font-bold text-amber-400 bg-amber-950/40 border border-amber-900/40 px-3 py-1.5 rounded-xl">
+                  <div className="text-xs font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
                     {selectedUserIds.length} {selectedUserIds.length === 1 ? 'usuário selecionado' : 'usuários selecionados'}
                   </div>
 
                   {selectedUserIds.length > 0 && (
                     <button
                       onClick={() => setSelectedUserIds([])}
-                      className="text-[11px] text-slate-400 hover:text-white underline font-semibold"
+                      className="text-[11px] text-slate-500 hover:text-slate-800 underline font-semibold"
                     >
                       Desmarcar todos
                     </button>
@@ -1892,10 +1537,10 @@ export default function OperatorPanel({
                         setShowEditUserModal(true);
                       }
                     }}
-                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
+                    className={`px-3 py-1.5 rounded-xl font-extrabold text-xs flex items-center gap-1.5 border transition-all ${
                       selectedUserIds.length === 1
-                        ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 border-amber-400 shadow-sm'
-                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                        ? 'bg-amber-500 text-slate-950 hover:bg-amber-600 border-amber-500 shadow-xs'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                     }`}
                     title={selectedUserIds.length > 1 ? 'Selecione apenas um usuário para editar.' : 'Editar Usuário'}
                   >
@@ -1912,8 +1557,8 @@ export default function OperatorPanel({
                     }}
                     className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
                       selectedUserIds.length > 0
-                        ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800 hover:bg-emerald-900/60'
-                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                     }`}
                   >
                     <Unlock className="w-3.5 h-3.5" />
@@ -1929,8 +1574,8 @@ export default function OperatorPanel({
                     }}
                     className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
                       selectedUserIds.length > 0
-                        ? 'bg-amber-950/60 text-amber-400 border-amber-800 hover:bg-amber-900/60'
-                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                     }`}
                   >
                     <Lock className="w-3.5 h-3.5" />
@@ -1942,8 +1587,8 @@ export default function OperatorPanel({
                     onClick={() => setShowChangeRoleModal(true)}
                     className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
                       selectedUserIds.length > 0
-                        ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800 hover:bg-indigo-900/60'
-                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                     }`}
                   >
                     <Shield className="w-3.5 h-3.5" />
@@ -1958,8 +1603,8 @@ export default function OperatorPanel({
                     }}
                     className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
                       selectedUserIds.length > 0
-                        ? 'bg-slate-800 text-amber-400 border-slate-700 hover:bg-slate-700'
-                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                        ? 'bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                     }`}
                   >
                     <Key className="w-3.5 h-3.5" />
@@ -1971,8 +1616,8 @@ export default function OperatorPanel({
                     onClick={() => setShowBatchDeleteModal(true)}
                     className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all ${
                       selectedUserIds.length > 0
-                        ? 'bg-red-950/60 text-red-400 border-red-800 hover:bg-red-900/60'
-                        : 'bg-slate-800/40 text-slate-500 border-slate-800 cursor-not-allowed opacity-50'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                        : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                     }`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1982,51 +1627,51 @@ export default function OperatorPanel({
               </div>
 
               {/* USERS TABLE */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-                <table className="w-full text-xs text-slate-300 border-collapse">
+              <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-xs">
+                <table className="w-full text-xs text-slate-700 border-collapse">
                   <thead>
-                    <tr className="bg-slate-950/50 border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold text-[10px]">
-                      <th className="p-3 w-10 text-center">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="p-3.5 w-10 text-center">
                         <input
                           type="checkbox"
                           checked={isAllSelected}
                           onChange={(e) => handleSelectAll(e.target.checked)}
-                          className="w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900 cursor-pointer"
+                          className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 bg-white cursor-pointer"
                         />
                       </th>
-                      <th className="p-3 text-left">Nome</th>
-                      <th className="p-3 text-left">E-mail</th>
-                      <th className="p-3 text-left">Perfil</th>
-                      <th className="p-3 text-left">Status</th>
-                      <th className="p-3 text-center">Último Acesso</th>
+                      <th className="p-3.5 text-left">Nome</th>
+                      <th className="p-3.5 text-left">E-mail</th>
+                      <th className="p-3.5 text-left">Perfil</th>
+                      <th className="p-3.5 text-left">Status</th>
+                      <th className="p-3.5 text-center">Último Acesso</th>
                     </tr>
                   </thead>
                   <tbody>
                     {companyUsersList.map(u => {
                       const isSelected = selectedUserIds.includes(u.id);
                       return (
-                        <tr key={u.id} className={`border-b border-slate-800/60 last:border-0 transition-colors ${isSelected ? 'bg-amber-950/25 border-l-2 border-amber-500' : 'hover:bg-slate-800/20'}`}>
-                          <td className="p-3 text-center">
+                        <tr key={u.id} className={`border-b border-slate-100 last:border-0 transition-colors ${isSelected ? 'bg-amber-50/60 border-l-4 border-amber-500' : 'hover:bg-slate-50/80'}`}>
+                          <td className="p-3.5 text-center">
                             <input
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => handleToggleUserSelect(u.id)}
-                              className="w-4 h-4 rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900 cursor-pointer"
+                              className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 bg-white cursor-pointer"
                             />
                           </td>
-                          <td className="p-3 font-bold text-white">{u.nome}</td>
-                          <td className="p-3 font-mono text-slate-300">{u.email}</td>
-                          <td className="p-3">
-                            <span className="font-bold uppercase text-amber-400 bg-amber-950/40 border border-amber-900/40 px-2 py-0.5 rounded text-[10px]">
+                          <td className="p-3.5 font-bold text-slate-900">{u.nome}</td>
+                          <td className="p-3.5 font-mono text-slate-600">{u.email}</td>
+                          <td className="p-3.5">
+                            <span className="font-bold uppercase text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-md text-[10px]">
                               {u.role}
                             </span>
                           </td>
-                          <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${u.ativo ? 'bg-emerald-950 border-emerald-800 text-emerald-400' : 'bg-red-950 border-red-900 text-red-400'}`}>
+                          <td className="p-3.5">
+                            <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border ${u.ativo ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
                               {u.ativo ? 'ATIVO' : 'BLOQUEADO'}
                             </span>
                           </td>
-                          <td className="p-3 text-center text-slate-500 font-mono">
+                          <td className="p-3.5 text-center text-slate-500 font-mono text-[11px]">
                             {u.ultimoLogin ? formatDateTime(u.ultimoLogin) : 'Nenhum'}
                           </td>
                         </tr>
@@ -2097,62 +1742,66 @@ export default function OperatorPanel({
         {/* TAB: CONFIGURAÇÕES DA EMPRESA */}
         {activeTab === 'configuracoes' && (
           <div className="space-y-6">
-            <div className="border-b border-slate-800 pb-4">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Sliders className="w-5 h-5 text-amber-500" />
-                <span>Configurações do Sistema & Empresa</span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">
-                Gerencie os parâmetros globais da empresa, limites de operação e configurações da conta.
-              </p>
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500/10 text-amber-600 rounded-xl border border-amber-500/20 shrink-0">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base md:text-lg font-extrabold text-slate-900">Configurações do Sistema & Empresa</h2>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Gerencie os parâmetros globais da empresa, limites de operação e configurações da conta.
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* DADOS DA EMPRESA */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                <h3 className="font-bold text-white text-sm flex items-center gap-2 border-b border-slate-800 pb-2">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
+                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2 border-b border-slate-100 pb-2">
                   <Building className="w-4 h-4 text-amber-500" />
                   <span>Dados da Empresa Logada</span>
                 </h3>
 
                 <div className="space-y-3 text-xs">
                   <div>
-                    <label className="text-slate-400 font-semibold block mb-1">Razão Social / Nome Fantasia</label>
+                    <label className="text-slate-700 font-bold block mb-1">Razão Social / Nome Fantasia</label>
                     <input
                       type="text"
                       disabled
                       value={company.nome}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 font-extrabold"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-slate-400 font-semibold block mb-1">CNPJ</label>
+                      <label className="text-slate-700 font-bold block mb-1">CNPJ</label>
                       <input
                         type="text"
                         disabled
                         value={company.cnpj || '00.000.000/0001-00'}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-mono"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-700 font-mono font-semibold"
                       />
                     </div>
                     <div>
-                      <label className="text-slate-400 font-semibold block mb-1">Telefone / Contato</label>
+                      <label className="text-slate-700 font-bold block mb-1">Telefone / Contato</label>
                       <input
                         type="text"
                         disabled
                         value={company.telefone || '(11) 99999-9999'}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-slate-300 font-mono"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-700 font-mono font-semibold"
                       />
                     </div>
                   </div>
 
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200/80 flex items-center justify-between">
                     <div>
-                      <span className="text-slate-400 text-[11px] block">Plano & Licença</span>
-                      <span className="font-bold text-amber-400 text-xs uppercase">{company.planoContratado || 'SaaS Pro Multiempresas'}</span>
+                      <span className="text-slate-600 text-[11px] font-semibold block">Plano & Licença</span>
+                      <span className="font-extrabold text-amber-800 text-xs uppercase">{company.planoContratado || 'SaaS Pro Multiempresas'}</span>
                     </div>
-                    <span className="px-2.5 py-1 bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold rounded-full">
+                    <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-extrabold rounded-full">
                       Licença Ativa
                     </span>
                   </div>
@@ -2160,29 +1809,36 @@ export default function OperatorPanel({
               </div>
 
               {/* REGRAS OPERACIONAIS */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                <h3 className="font-bold text-white text-sm flex items-center gap-2 border-b border-slate-800 pb-2">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 space-y-4 shadow-xs">
+                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2 border-b border-slate-100 pb-2">
                   <Shield className="w-4 h-4 text-amber-500" />
                   <span>Diretrizes e Parâmetros Operacionais</span>
                 </h3>
 
                 <div className="space-y-3 text-xs">
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                    <span className="font-bold text-white block">Sincronização GPS e Offline</span>
-                    <p className="text-slate-400 text-[11px]">
-                      O aplicativo rastreia localizações em segundo plano durante trajetos ativos. Em locais sem internet, os pings e fotos de comprovante são gravados em IndexedDB local e sincronizados ao restabelecer a conexão.
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                    <span className="font-bold text-slate-900 block flex items-center gap-1.5">
+                      <Navigation className="w-3.5 h-3.5 text-amber-500" />
+                      GPS Offline & Rastreamento em Tempo Real
+                    </span>
+                    <p className="text-slate-600 text-[11px] leading-relaxed">
+                      Pings de localização gravados em segundo plano. Em locais sem cobertura, os dados são preservados em IndexedDB e sincronizados automaticamente.
                     </p>
                   </div>
 
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
-                    <span className="font-bold text-white block">Comprovantes & Assinatura Digital</span>
-                    <p className="text-slate-400 text-[11px]">
-                      Exigência obrigatória de captura de foto, nome do recebedor e documento para finalização e validação de entregas.
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                    <span className="font-bold text-slate-900 block flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-amber-500" />
+                      Comprovantes & Assinatura Digital
+                    </span>
+                    <p className="text-slate-600 text-[11px] leading-relaxed">
+                      Exigência de fotos de entrega, nome do recebedor e documento para baixa e validação no sistema.
                     </p>
                   </div>
 
-                  <div className="p-3 bg-amber-950/20 border border-amber-900/40 rounded-xl text-amber-300 text-[11px] font-medium">
-                    Identidade Visual Fast Gestão padronizada. Todos os menus e relatórios seguem o design corporativo oficial.
+                  <div className="p-3.5 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-900 text-[11px] font-semibold flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Identidade Visual Fast Gestão padronizada em todos os módulos e relatórios corporativos.</span>
                   </div>
                 </div>
               </div>
@@ -2206,14 +1862,26 @@ export default function OperatorPanel({
 
       {/* 1. ADD NEW DELIVERY MODAL */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-1.5">
-                <Package className="w-5 h-5 text-amber-500" />
-                Cadastrar Nova Entrega
-              </h3>
-              <button type="button" onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Fechar</button>
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-[#F8FAFC] border border-slate-200 rounded-[18px] w-full max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 shadow-[0_8px_30px_rgba(15,23,42,0.12)]">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900">Cadastrar Nova Entrega</h3>
+                  <p className="text-xs text-slate-500 font-medium">Preencha os dados da entrega abaixo</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowAddModal(false)} 
+                className="text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1.5 rounded-xl transition-all cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             <DeliveryForm
@@ -2221,7 +1889,7 @@ export default function OperatorPanel({
               availableDrivers={availableDrivers}
               users={users}
               isSubmitting={isSubmittingDelivery}
-              submitButtonText="Gravar Registro"
+              submitButtonText="Cadastrar Entrega"
               onSubmit={handleDeliveryFormSubmit}
               onCancel={() => setShowAddModal(false)}
               onNavigateToDrivers={() => {
@@ -2236,17 +1904,31 @@ export default function OperatorPanel({
 
       {/* EDIT DELIVERY MODAL */}
       {showEditDeliveryModal && (editingDelivery || selectedDelivery) && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-1.5">
-                <FileText className="w-5 h-5 text-amber-500" />
-                Editar Entrega #{(editingDelivery || selectedDelivery)?.numeroNF}
-              </h3>
-              <button type="button" onClick={() => {
-                setShowEditDeliveryModal(false);
-                setEditingDelivery(null);
-              }} className="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Fechar</button>
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-[#F8FAFC] border border-slate-200 rounded-[18px] w-full max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 shadow-[0_8px_30px_rgba(15,23,42,0.12)]">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                    Editar Entrega #{(editingDelivery || selectedDelivery)?.numeroNF}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">Atualize as informações da entrega</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setShowEditDeliveryModal(false);
+                  setEditingDelivery(null);
+                }} 
+                className="text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1.5 rounded-xl transition-all cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             <DeliveryForm
@@ -2268,76 +1950,78 @@ export default function OperatorPanel({
 
       {/* 2. DRIVER REGISTRATION MODAL */}
       {showDriverModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
-          <form onSubmit={handleCreateDriver} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-1.5">
-                <Users className="w-5 h-5 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <form onSubmit={handleCreateDriver} className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-6 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="text-base font-bold text-[#0F172A] flex items-center gap-2">
+                <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg">
+                  <Users className="w-5 h-5" />
+                </div>
                 Cadastrar Novo Entregador
               </h3>
-              <button type="button" onClick={() => setShowDriverModal(false)} className="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Fechar</button>
+              <button type="button" onClick={() => setShowDriverModal(false)} className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer">✕</button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               
               {/* Pessoais */}
               <div className="space-y-4">
-                <h4 className="font-bold text-amber-500 uppercase text-[10px]">Identificação Pessoal</h4>
+                <h4 className="font-extrabold text-amber-600 uppercase text-[10px]">Identificação Pessoal</h4>
                 <div>
-                  <label className="block text-slate-400 mb-1">Nome Completo *</label>
+                  <label className="block text-[#0F172A] font-bold mb-1">Nome Completo *</label>
                   <input
                     type="text" required value={newDriverName} onChange={(e) => setNewDriverName(e.target.value)}
                     placeholder="Nome completo"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                    className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-slate-400 mb-1">CPF *</label>
+                    <label className="block text-[#0F172A] font-bold mb-1">CPF *</label>
                     <input
                       type="text" required value={newDriverCPF} onChange={(e) => setNewDriverCPF(e.target.value)}
                       placeholder="000.000.000-00"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 mb-1">RG</label>
+                    <label className="block text-[#0F172A] font-bold mb-1">RG</label>
                     <input
                       type="text" value={newDriverRG} onChange={(e) => setNewDriverRG(e.target.value)}
                       placeholder="MG-000.000"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-slate-400 mb-1">Telefone *</label>
+                    <label className="block text-[#0F172A] font-bold mb-1">Telefone *</label>
                     <input
                       type="text" required value={newDriverPhone} onChange={(e) => setNewDriverPhone(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 mb-1">WhatsApp</label>
+                    <label className="block text-[#0F172A] font-bold mb-1">WhatsApp</label>
                     <input
                       type="text" value={newDriverWhatsapp} onChange={(e) => setNewDriverWhatsapp(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none font-mono"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">E-mail (Para login do entregador)</label>
+                  <label className="block text-[#0F172A] font-bold mb-1">E-mail (Para login do entregador)</label>
                   <input
                     type="email" value={newDriverEmail} onChange={(e) => setNewDriverEmail(e.target.value)}
                     placeholder="entregador@empresa.com"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                    className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* Endereço e CNH */}
               <div className="space-y-4">
-                <h4 className="font-bold text-amber-500 uppercase text-[10px]">Endereço & CNH</h4>
+                <h4 className="font-extrabold text-amber-600 uppercase text-[10px]">Endereço & CNH</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="col-span-2">
                     <CepInput
@@ -2354,71 +2038,71 @@ export default function OperatorPanel({
                   </div>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Endereço Residencial</label>
+                  <label className="block text-[#0F172A] font-bold mb-1">Endereço Residencial</label>
                   <input
                     id="newDriverEnderecoInput"
                     name="numero"
                     type="text" value={newDriverEndereco} onChange={(e) => setNewDriverEndereco(e.target.value)}
                     placeholder="Rua, número, bairro"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                    className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Cidade</label>
+                  <label className="block text-[#0F172A] font-bold mb-1">Cidade</label>
                   <input
                     type="text" value={newDriverCidade} onChange={(e) => setNewDriverCidade(e.target.value)}
                     placeholder="Cidade / UF"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                    className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-2">
-                    <label className="block text-slate-400 mb-1">Registro CNH</label>
+                    <label className="block text-[#0F172A] font-bold mb-1">Registro CNH</label>
                     <input
                       type="text" value={newDriverCNH} onChange={(e) => setNewDriverCNH(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 mb-1">Categoria</label>
+                    <label className="block text-[#0F172A] font-bold mb-1">Cat.</label>
                     <input
                       type="text" value={newDriverCNHCat} onChange={(e) => setNewDriverCNHCat(e.target.value)}
                       placeholder="A"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none text-center font-bold uppercase"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Validade CNH</label>
+                  <label className="block text-[#0F172A] font-bold mb-1">Validade CNH</label>
                   <input
                     type="date" value={newDriverCNHVal} onChange={(e) => setNewDriverCNHVal(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                    className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                   />
                 </div>
               </div>
 
               {/* VEICULO OPCIONAL CONTROLS */}
-              <div className="md:col-span-2 border-t border-slate-800 pt-4">
+              <div className="md:col-span-2 border-t border-slate-200 pt-4">
                 <div className="flex items-center gap-2 mb-3">
                   <input
                     type="checkbox"
                     id="hasVehicleCheck"
                     checked={hasVehicleInfo}
                     onChange={(e) => setHasVehicleInfo(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-800 bg-slate-950 text-amber-500"
+                    className="w-4 h-4 rounded border-slate-300 text-amber-500 focus:ring-amber-500 cursor-pointer"
                   />
-                  <label htmlFor="hasVehicleCheck" className="text-xs font-bold text-white uppercase tracking-wider cursor-pointer select-none">
+                  <label htmlFor="hasVehicleCheck" className="text-xs font-extrabold text-[#0F172A] uppercase tracking-wider cursor-pointer select-none">
                     Possui veículo próprio/associado fixo? (Opcional)
                   </label>
                 </div>
 
                 {hasVehicleInfo && (
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 animate-fade-in">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 animate-fade-in bg-[#F8FAFC] p-3 rounded-xl border border-slate-200">
                     <div>
-                      <label className="block text-slate-400 mb-1">Tipo Veículo</label>
+                      <label className="block text-slate-600 font-bold mb-1">Tipo Veículo</label>
                       <select
                         value={newDriverVeiTipo} onChange={(e) => setNewDriverVeiTipo(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                        className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2 text-xs text-[#0F172A] font-medium"
                       >
                         <option value="Bicicleta">Bicicleta</option>
                         <option value="Bicicleta Elétrica">Bicicleta Elétrica</option>
@@ -2430,35 +2114,35 @@ export default function OperatorPanel({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Marca</label>
+                      <label className="block text-slate-600 font-bold mb-1">Marca</label>
                       <input
                         type="text" value={newDriverVeiMarca} onChange={(e) => setNewDriverVeiMarca(e.target.value)}
                         placeholder="Ex: Honda"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                        className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2 text-xs text-[#0F172A]"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Modelo</label>
+                      <label className="block text-slate-600 font-bold mb-1">Modelo</label>
                       <input
                         type="text" value={newDriverVeiModelo} onChange={(e) => setNewDriverVeiModelo(e.target.value)}
                         placeholder="Ex: CG 160 Cargo"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                        className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2 text-xs text-[#0F172A]"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Cor</label>
+                      <label className="block text-slate-600 font-bold mb-1">Cor</label>
                       <input
                         type="text" value={newDriverVeiCor} onChange={(e) => setNewDriverVeiCor(e.target.value)}
                         placeholder="Ex: Vermelha"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white"
+                        className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2 text-xs text-[#0F172A]"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Placa</label>
+                      <label className="block text-slate-600 font-bold mb-1">Placa</label>
                       <input
                         type="text" value={newDriverVeiPlaca} onChange={(e) => setNewDriverVeiPlaca(e.target.value)}
                         placeholder="Ex: ABC-1234"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono"
+                        className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2 text-xs text-[#0F172A] font-mono font-bold uppercase"
                       />
                     </div>
                   </div>
@@ -2466,25 +2150,25 @@ export default function OperatorPanel({
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-slate-400 mb-1">Observações Internas</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Observações Internas</label>
                 <textarea
                   rows={2} value={newDriverObs} onChange={(e) => setNewDriverObs(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] p-3 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
                 />
               </div>
 
             </div>
 
-            <div className="border-t border-slate-800 pt-4 flex justify-end gap-2">
+            <div className="border-t border-slate-200 pt-4 flex justify-end gap-2.5">
               <button
                 type="button" onClick={() => setShowDriverModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl text-xs font-bold transition-all cursor-pointer"
               >
                 Voltar
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-amber-500 text-slate-950 rounded-lg text-xs font-bold"
+                className="px-5 py-2 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
               >
                 Gravar Entregador
               </button>
@@ -2495,13 +2179,15 @@ export default function OperatorPanel({
 
       {/* 3. CANCEL DELIVERY MODAL */}
       {showCancelModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
-            <h3 className="text-sm font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-base font-bold text-rose-700 flex items-center gap-2 uppercase tracking-wider">
+              <div className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
               Cancelar Entrega
             </h3>
-            <p className="text-xs text-slate-400">Informe abaixo o motivo do cancelamento operacional desta entrega para fins de relatório fiscal.</p>
+            <p className="text-xs text-slate-600 font-medium leading-relaxed">Informe abaixo o motivo do cancelamento operacional desta entrega para fins de relatório fiscal.</p>
             
             <input
               type="text"
@@ -2509,20 +2195,20 @@ export default function OperatorPanel({
               value={cancelMotive}
               onChange={(e) => setCancelMotive(e.target.value)}
               placeholder="Ex: Erro no endereço de cadastro ou cancelamento do cliente"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-red-500"
+              className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-rose-500"
             />
 
-            <div className="flex justify-end gap-2 text-xs">
+            <div className="flex justify-end gap-2 text-xs pt-2 border-t border-slate-200">
               <button
                 type="button" onClick={() => setShowCancelModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
               >
                 Voltar
               </button>
               <button
                 type="button" onClick={handleCancelDeliverySubmit}
                 disabled={!cancelMotive}
-                className="px-4 py-2 bg-red-600 text-white hover:bg-red-500 rounded-lg font-bold disabled:opacity-50"
+                className="px-4 py-2 bg-[#FFF1F2] text-[#E11D48] border border-[#FECDD3] hover:bg-rose-100 rounded-xl font-bold disabled:opacity-50 cursor-pointer"
               >
                 Confirmar Cancelamento
               </button>
@@ -2533,67 +2219,119 @@ export default function OperatorPanel({
 
       {/* 4. USER COLLABORATOR REGISTER MODAL */}
       {showUserModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <form onSubmit={handleCreateCollab} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Criar Usuário de Acesso</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <form onSubmit={handleCreateCollab} className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-lg p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A] max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-2 border-b border-slate-200">
+              <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg">
+                <UserPlus className="w-4 h-4" />
+              </div>
+              Criar Usuário de Acesso
+            </h3>
             
             <div>
-              <label className="block text-slate-400 mb-1 text-xs">Nome Completo</label>
+              <label className="block text-[#0F172A] font-bold mb-1 text-xs">Nome Completo *</label>
               <input
                 type="text" required value={newCollabNome} onChange={(e) => setNewCollabNome(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                placeholder="Ex: João Silva"
+                className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
               />
             </div>
 
-            <div>
-              <label className="block text-slate-400 mb-1 text-xs">E-mail de Login</label>
-              <input
-                type="email" required value={newCollabEmail} onChange={(e) => setNewCollabEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[#0F172A] font-bold mb-1 text-xs">E-mail de Login *</label>
+                <input
+                  type="email" required value={newCollabEmail} onChange={(e) => setNewCollabEmail(e.target.value)}
+                  placeholder="usuario@empresa.com"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[#0F172A] font-bold mb-1 text-xs">Telefone / WhatsApp</label>
+                <input
+                  type="text" value={newCollabTelefone} onChange={(e) => setNewCollabTelefone(e.target.value)}
+                  placeholder="(11) 99999-9999"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none font-mono"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-slate-400 mb-1 text-xs">Perfil de Permissão</label>
-              <select
-                value={newCollabRole} onChange={(e) => setNewCollabRole(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-              >
-                <option value="operador">Operador (Acompanhamento e Criação)</option>
-                <option value="motorista">Entregador / Motorista (App Celular)</option>
-              </select>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[#0F172A] font-bold mb-1 text-xs">Senha Inicial</label>
+                <input
+                  type="password" value={newCollabSenha} onChange={(e) => setNewCollabSenha(e.target.value)}
+                  placeholder="Padrão: 123456"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[#0F172A] font-bold mb-1 text-xs">Confirmar Senha</label>
+                <input
+                  type="password" value={newCollabConfirmSenha} onChange={(e) => setNewCollabConfirmSenha(e.target.value)}
+                  placeholder="Repita a senha"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[#0F172A] font-bold mb-1 text-xs">Perfil de Permissão *</label>
+                <select
+                  value={newCollabRole} onChange={(e) => setNewCollabRole(e.target.value as any)}
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none cursor-pointer"
+                >
+                  <option value="admin">Administrador da Empresa</option>
+                  <option value="operador">Operador (Atendente / Logística)</option>
+                  <option value="expedidor">Expedidor / Despachante</option>
+                  <option value="motorista">Entregador / Motorista (App Celular)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[#0F172A] font-bold mb-1 text-xs">Status da Conta</label>
+                <select
+                  value={newCollabAtivo ? 'true' : 'false'} onChange={(e) => setNewCollabAtivo(e.target.value === 'true')}
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none cursor-pointer"
+                >
+                  <option value="true">Ativo</option>
+                  <option value="false">Inativo / Bloqueado</option>
+                </select>
+              </div>
             </div>
 
             {newCollabRole === 'motorista' && (
               <div>
-                <label className="block text-slate-400 mb-1 text-xs">Vincular a qual Cadastro Físico?</label>
+                <label className="block text-[#0F172A] font-bold mb-1 text-xs">Vincular a qual Cadastro Físico de Entregador?</label>
                 <select
-                  required
                   value={newCollabDriverId} onChange={(e) => setNewCollabDriverId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:border-[#F59E0B] focus:outline-none cursor-pointer"
                 >
-                  <option value="">-- Selecione o Entregador --</option>
+                  <option value="">-- Criar Novo ou Selecionar Existente --</option>
                   {drivers.map(drv => (
-                    <option key={drv.id} value={drv.id}>{drv.nome}</option>
+                    <option key={drv.id} value={drv.id}>{drv.nome} ({drv.cpf || 'Sem CPF'})</option>
                   ))}
                 </select>
               </div>
             )}
 
-            <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 text-[11px] text-slate-400">
-              💡 A senha temporária padrão de fábrica para novas contas será <span className="font-bold text-white">123456</span>. O usuário poderá alterá-la livremente após o primeiro login através de seu Perfil.
+            <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-[11px] text-amber-900 font-medium">
+              💡 Se a senha for deixada em branco, a senha temporária inicial será <span className="font-bold text-[#0F172A]">123456</span>. O usuário poderá alterá-la após o primeiro login.
             </div>
 
-            <div className="flex justify-end gap-2 text-xs">
+            <div className="flex justify-end gap-2 text-xs pt-2 border-t border-slate-200">
               <button
                 type="button" onClick={() => setShowUserModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 rounded-lg font-bold"
+                className="px-5 py-2 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] rounded-xl font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 Gerar Conta
               </button>
@@ -2602,97 +2340,35 @@ export default function OperatorPanel({
         </div>
       )}
 
-      {/* 5. QR CODE SCANNING SIMULATOR MODAL */}
-      {showScannerModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-              <RefreshCw className="w-5 h-5 text-amber-500 animate-spin" />
-              Simulador de Leitor QR Code
-            </h3>
-            <p className="text-xs text-slate-400">Selecione uma entrega ou digite a Nota Fiscal correspondente para simular o escaneamento físico da etiqueta QR Code.</p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-slate-500 text-[10px] uppercase font-bold mb-1">Selecione uma entrega para Escanear</label>
-                <select
-                  value={scannedQrCode}
-                  onChange={(e) => setScannedQrCode(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white font-semibold"
-                >
-                  <option value="">-- Escolher Entrega Registrada --</option>
-                  {deliveries.map(d => (
-                    <option key={d.id} value={d.id}>NF {d.numeroNF} — {d.cliente.nome}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="relative my-4 flex items-center">
-                <div className="flex-1 border-t border-slate-800"></div>
-                <span className="px-3 text-xs text-slate-500 uppercase tracking-widest bg-slate-900">Ou digite manualmente</span>
-                <div className="flex-1 border-t border-slate-800"></div>
-              </div>
-
-              <div>
-                <input
-                  type="text"
-                  value={scannedQrCode}
-                  onChange={(e) => setScannedQrCode(e.target.value)}
-                  placeholder="Número da NF ou ID"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 text-xs pt-2">
-              <button
-                type="button" onClick={() => setShowScannerModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold"
-              >
-                Fechar
-              </button>
-              <button
-                type="button"
-                onClick={handleScanQrCodeSimulate}
-                disabled={!scannedQrCode}
-                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 rounded-lg font-bold disabled:opacity-40"
-              >
-                Carregar Registro
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 6. NEW VEHICLE MODAL */}
       {showVehicleModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <form onSubmit={handleCreateVehicle} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm p-6 space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Cadastrar Veículo na Frota</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <form onSubmit={handleCreateVehicle} className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-sm p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider">Cadastrar Veículo na Frota</h3>
 
             <div>
-              <label className="block text-slate-400 mb-1 text-xs">Placa do Veículo *</label>
+              <label className="block text-[#0F172A] font-bold mb-1 text-xs">Placa do Veículo *</label>
               <input
                 type="text" required value={newPlaca} onChange={(e) => setNewPlaca(e.target.value)}
                 placeholder="Ex: ABC-1234"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white uppercase font-mono"
+                className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] uppercase font-mono font-bold"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1 text-xs">Modelo do Veículo *</label>
+              <label className="block text-[#0F172A] font-bold mb-1 text-xs">Modelo do Veículo *</label>
               <input
                 type="text" required value={newModelo} onChange={(e) => setNewModelo(e.target.value)}
                 placeholder="Ex: Fiat Fiorino 1.4 HD"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A]"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1 text-xs">Tipo de Veículo</label>
+              <label className="block text-[#0F172A] font-bold mb-1 text-xs">Tipo de Veículo</label>
               <select
                 value={newTipo} onChange={(e) => setNewTipo(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] cursor-pointer"
               >
                 <option value="moto">Moto</option>
                 <option value="carro">Carro de Apoio</option>
@@ -2701,16 +2377,16 @@ export default function OperatorPanel({
               </select>
             </div>
 
-            <div className="flex justify-end gap-2 text-xs pt-2">
+            <div className="flex justify-end gap-2 text-xs pt-2 border-t border-slate-200">
               <button
                 type="button" onClick={() => setShowVehicleModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 rounded-lg font-bold"
+                className="px-4 py-2 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] rounded-xl font-bold cursor-pointer shadow-xs"
               >
                 Adicionar Veículo
               </button>
@@ -2721,23 +2397,23 @@ export default function OperatorPanel({
 
       {/* 7. DELETE CLIENT MODAL WITH INTEGRITY CHECK */}
       {showDeleteClientModal && selectedClientToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center gap-2.5 text-red-500 border-b border-slate-800 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-5 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <div className="flex items-center gap-2.5 text-rose-600 border-b border-slate-200 pb-3">
               <AlertTriangle className="w-6 h-6" />
-              <h3 className="text-base font-bold text-white">Excluir Cliente</h3>
+              <h3 className="text-base font-bold text-[#0F172A]">Excluir Cliente</h3>
             </div>
 
             {clientDeleteError ? (
-              <div className="p-4 bg-red-950/70 border border-red-800/80 rounded-xl space-y-3">
-                <p className="font-bold text-red-400 text-xs">⚠️ Bloqueio de Exclusão por Integridade de Dados</p>
-                <p className="text-xs text-slate-300">{clientDeleteError}</p>
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-3">
+                <p className="font-extrabold text-rose-800 text-xs">⚠️ Bloqueio de Exclusão por Integridade de Dados</p>
+                <p className="text-xs text-rose-900 font-medium">{clientDeleteError}</p>
                 {clientDeleteActiveNFs.length > 0 && (
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Entregas em Andamento:</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1">Entregas em Andamento:</span>
                     <div className="flex flex-wrap gap-1">
                       {clientDeleteActiveNFs.map(nf => (
-                        <span key={nf} className="px-2 py-0.5 bg-slate-900 border border-red-900/50 text-red-300 font-mono text-[10px] rounded font-bold">
+                        <span key={nf} className="px-2 py-0.5 bg-white border border-rose-300 text-rose-800 font-mono text-[10px] rounded font-bold">
                           NF {nf}
                         </span>
                       ))}
@@ -2746,20 +2422,20 @@ export default function OperatorPanel({
                 )}
               </div>
             ) : (
-              <div className="space-y-3 text-xs text-slate-300">
-                <p>Tem certeza que deseja excluir permanentemente o cliente <span className="font-bold text-white">{selectedClientToDelete.nome}</span>?</p>
-                <p className="text-slate-400 text-[11px]">Esta operação será auditada e gravada no sistema central.</p>
+              <div className="space-y-3 text-xs text-slate-700 font-medium">
+                <p>Tem certeza que deseja excluir permanentemente o cliente <span className="font-extrabold text-[#0F172A]">{selectedClientToDelete.nome}</span>?</p>
+                <p className="text-slate-500 text-[11px]">Esta operação será auditada e gravada no sistema central.</p>
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
               <button
                 onClick={() => {
                   setShowDeleteClientModal(false);
                   setSelectedClientToDelete(null);
                   setClientDeleteError(null);
                 }}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-700"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl text-xs font-bold transition-all cursor-pointer"
               >
                 {clientDeleteError ? 'Entendido / Voltar' : 'Cancelar'}
               </button>
@@ -2767,7 +2443,7 @@ export default function OperatorPanel({
                 <button
                   disabled={isDeletingClient}
                   onClick={handleExecuteDeleteClient}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-red-600/30"
+                  className="px-4 py-2 bg-[#FFF1F2] text-[#E11D48] border border-[#FECDD3] hover:bg-rose-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
                   {isDeletingClient ? 'Excluindo...' : 'Confirmar Exclusão'}
                 </button>
@@ -2779,59 +2455,61 @@ export default function OperatorPanel({
 
       {/* 8. ADD NEW CLIENT MODAL */}
       {showAddClientModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <form onSubmit={handleCreateClient} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-1.5">
-                <Users className="w-5 h-5 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <form onSubmit={handleCreateClient} className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-lg p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <h3 className="text-base font-bold text-[#0F172A] flex items-center gap-2">
+                <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg">
+                  <Users className="w-5 h-5" />
+                </div>
                 Cadastrar Novo Cliente
               </h3>
-              <button type="button" onClick={() => setShowAddClientModal(false)} className="text-slate-400 hover:text-white text-xs bg-slate-800 px-2 py-1 rounded">Fechar</button>
+              <button type="button" onClick={() => setShowAddClientModal(false)} className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer">✕</button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
               <div className="md:col-span-2">
-                <label className="block text-slate-400 mb-1 font-semibold">Nome do Cliente / Razão Social *</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Nome do Cliente / Razão Social *</label>
                 <input
                   type="text" required value={cNome} onChange={(e) => setCNome(e.target.value)}
                   placeholder="Ex: Comercial Silva Ltda"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Telefone *</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Telefone *</label>
                 <input
                   type="text" required value={cTelefone} onChange={(e) => setCTelefone(e.target.value)}
                   placeholder="(11) 99999-0000"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B] font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">WhatsApp</label>
+                <label className="block text-[#0F172A] font-bold mb-1">WhatsApp</label>
                 <input
                   type="text" value={cWhatsapp} onChange={(e) => setCWhatsapp(e.target.value)}
                   placeholder="(11) 99999-0000"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B] font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">CPF / CNPJ</label>
+                <label className="block text-[#0F172A] font-bold mb-1">CPF / CNPJ</label>
                 <input
                   type="text" value={cDocumento} onChange={(e) => setCDocumento(e.target.value)}
                   placeholder="00.000.000/0001-00"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500 font-mono"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B] font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">E-mail</label>
+                <label className="block text-[#0F172A] font-bold mb-1">E-mail</label>
                 <input
                   type="email" value={cEmail} onChange={(e) => setCEmail(e.target.value)}
                   placeholder="contato@cliente.com"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
@@ -2850,36 +2528,36 @@ export default function OperatorPanel({
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Endereço (Rua e Nº)</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Endereço (Rua e Nº)</label>
                 <input
                   id="clientEnderecoInput"
                   name="numero"
                   type="text" value={cEndereco} onChange={(e) => setCEndereco(e.target.value)}
                   placeholder="Av. Paulista, 1000"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">Bairro</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Bairro</label>
                 <input
                   type="text" value={cBairro} onChange={(e) => setCBairro(e.target.value)}
                   placeholder="Bela Vista"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 text-xs pt-3 border-t border-slate-800">
+            <div className="flex justify-end gap-2 text-xs pt-3 border-t border-slate-200">
               <button
                 type="button" onClick={() => setShowAddClientModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 rounded-lg font-bold"
+                className="px-4 py-2 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] rounded-xl font-bold cursor-pointer shadow-xs"
               >
                 Cadastrar Cliente
               </button>
@@ -2890,41 +2568,41 @@ export default function OperatorPanel({
 
       {/* DELETE DELIVERY CONFIRMATION MODAL */}
       {showDeleteDeliveryModal && deliveryToDelete && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl text-xs">
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] max-w-md w-full p-6 space-y-5 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A] text-xs">
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
                 <Trash className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-white text-sm">Confirmar Exclusão de Entrega</h3>
-                <p className="text-slate-400 text-[11px] mt-0.5">Esta ação removerá a entrega do banco de dados e de todos os painéis em tempo real.</p>
+                <h3 className="font-bold text-[#0F172A] text-sm">Confirmar Exclusão de Entrega</h3>
+                <p className="text-slate-500 text-[11px] mt-0.5">Esta ação removerá a entrega do banco de dados e de todos os painéis em tempo real.</p>
               </div>
             </div>
 
-            <div className="bg-slate-950/60 border border-slate-800 p-3 rounded-xl space-y-1">
+            <div className="bg-[#F8FAFC] border border-slate-200 p-3 rounded-xl space-y-1">
               <div className="flex justify-between font-mono text-[11px]">
-                <span className="text-slate-400">Nota Fiscal:</span>
-                <span className="font-bold text-white">{deliveryToDelete.numeroNF}</span>
+                <span className="text-slate-500">Nota Fiscal:</span>
+                <span className="font-bold text-[#0F172A]">{deliveryToDelete.numeroNF}</span>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-slate-400">Cliente:</span>
-                <span className="font-bold text-slate-200">{deliveryToDelete.cliente.nome}</span>
+                <span className="text-slate-500">Cliente:</span>
+                <span className="font-bold text-slate-800">{deliveryToDelete.cliente.nome}</span>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-slate-400">Status Atual:</span>
-                <span className="font-bold uppercase text-amber-400">{deliveryToDelete.status}</span>
+                <span className="text-slate-500">Status Atual:</span>
+                <span className="font-bold uppercase text-amber-600">{deliveryToDelete.status}</span>
               </div>
             </div>
 
             {/* Proof / Files check */}
             {(deliveryToDelete.comprovante?.assinaturaUrl || deliveryToDelete.comprovante?.fotoProdutoUrl || deliveryToDelete.comprovante?.fotoFachadaUrl) && (
-              <div className="space-y-2 bg-amber-950/30 border border-amber-900/40 p-3 rounded-xl">
-                <label className="font-bold text-amber-300 block text-[11px]">
+              <div className="space-y-2 bg-amber-50 border border-amber-200 p-3 rounded-xl">
+                <label className="font-bold text-amber-900 block text-[11px]">
                   ⚠️ Esta entrega possui comprovantes e arquivos anexados:
                 </label>
                 <div className="space-y-2 pt-1">
-                  <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+                  <label className="flex items-center gap-2 text-slate-800 cursor-pointer">
                     <input
                       type="radio"
                       name="deleteFilesOpt"
@@ -2934,7 +2612,7 @@ export default function OperatorPanel({
                     />
                     <span>Excluir somente a entrega</span>
                   </label>
-                  <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+                  <label className="flex items-center gap-2 text-slate-800 cursor-pointer">
                     <input
                       type="radio"
                       name="deleteFilesOpt"
@@ -2942,29 +2620,29 @@ export default function OperatorPanel({
                       onChange={() => setDeleteFilesOption('delivery_and_files')}
                       className="text-amber-500 focus:ring-0 cursor-pointer"
                     />
-                    <span className="text-red-300 font-semibold">Excluir entrega e todos os arquivos relacionados</span>
+                    <span className="text-rose-700 font-bold">Excluir entrega e todos os arquivos relacionados</span>
                   </label>
                 </div>
               </div>
             )}
 
             <div>
-              <label className="block text-slate-400 font-semibold mb-1">Motivo da exclusão (opcional)</label>
+              <label className="block text-[#0F172A] font-bold mb-1">Motivo da exclusão (opcional)</label>
               <textarea
                 value={deleteDeliveryMotivo}
                 onChange={(e) => setDeleteDeliveryMotivo(e.target.value)}
                 placeholder="Digite o motivo para registro no Log de Auditoria..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500"
+                className="w-full bg-white border border-[#CBD5E1] rounded-[12px] p-2.5 text-xs text-[#0F172A] placeholder-slate-400 focus:outline-none focus:border-rose-500"
                 rows={2}
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setShowDeleteDeliveryModal(false)}
                 disabled={isDeletingDelivery}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
               >
                 Cancelar
               </button>
@@ -2972,7 +2650,7 @@ export default function OperatorPanel({
                 type="button"
                 onClick={handleConfirmDeleteDelivery}
                 disabled={isDeletingDelivery}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-red-600/20"
+                className="px-4 py-2 bg-[#FFF1F2] text-[#E11D48] border border-[#FECDD3] hover:bg-rose-100 rounded-xl font-bold flex items-center gap-2 cursor-pointer"
               >
                 {isDeletingDelivery ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash className="w-4 h-4" />}
                 Confirmar Exclusão
@@ -2984,10 +2662,12 @@ export default function OperatorPanel({
 
       {/* MODAL: EDIT USER (OPERATOR PANEL) */}
       {showEditUserModal && userToEdit && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Edit3 className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A] text-xs">
+            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-200">
+              <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Edit3 className="w-4 h-4" />
+              </div>
               Editar Dados do Usuário
             </h3>
 
@@ -3008,33 +2688,33 @@ export default function OperatorPanel({
               }
             }} className="space-y-3">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Nome Completo *</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Nome Completo *</label>
                 <input
                   type="text"
                   required
                   value={editUserForm.nome}
                   onChange={(e) => setEditUserForm({ ...editUserForm, nome: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">E-mail *</label>
+                <label className="block text-[#0F172A] font-bold mb-1">E-mail *</label>
                 <input
                   type="email"
                   required
                   value={editUserForm.email}
                   onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Perfil de Acesso *</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Perfil de Acesso *</label>
                 <select
                   value={editUserForm.role}
                   onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value as UserRole })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B] cursor-pointer"
                 >
                   <option value="admin">Administrador</option>
                   <option value="operador">Operador</option>
@@ -3043,28 +2723,28 @@ export default function OperatorPanel({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Status de Acesso</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Status de Acesso</label>
                 <select
                   value={editUserForm.ativo ? 'true' : 'false'}
                   onChange={(e) => setEditUserForm({ ...editUserForm, ativo: e.target.value === 'true' })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B] cursor-pointer"
                 >
                   <option value="true">Ativo / Liberado</option>
                   <option value="false">Bloqueado / Suspenso</option>
                 </select>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setShowEditUserModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400"
+                  className="px-5 py-2 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] font-bold rounded-xl cursor-pointer shadow-xs"
                 >
                   Salvar Alterações
                 </button>
@@ -3076,24 +2756,26 @@ export default function OperatorPanel({
 
       {/* MODAL: CHANGE ROLE (BATCH) */}
       {showChangeRoleModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Shield className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A] text-xs">
+            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-200">
+              <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Shield className="w-4 h-4" />
+              </div>
               Alterar Perfil em Lote
             </h3>
 
-            <p className="text-slate-300">
-              Selecione o novo perfil que será aplicado aos <strong>{selectedUserIds.length}</strong> usuário(s) selecionados:
+            <p className="text-slate-600 font-medium">
+              Selecione o novo perfil que será aplicado aos <strong className="text-[#0F172A]">{selectedUserIds.length}</strong> usuário(s) selecionados:
             </p>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Novo Perfil *</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Novo Perfil *</label>
                 <select
                   value={batchRoleValue}
                   onChange={(e) => setBatchRoleValue(e.target.value as UserRole)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B] cursor-pointer"
                 >
                   <option value="admin">Administrador</option>
                   <option value="operador">Operador</option>
@@ -3101,11 +2783,11 @@ export default function OperatorPanel({
                 </select>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setShowChangeRoleModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -3116,7 +2798,7 @@ export default function OperatorPanel({
                     setShowChangeRoleModal(false);
                     setFeedback({ type: 'success', message: `Perfil alterado para ${batchRoleValue} em ${selectedUserIds.length} usuário(s).` });
                   }}
-                  className="px-5 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-colors"
+                  className="px-5 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-colors cursor-pointer shadow-xs"
                 >
                   Aplicar Perfil
                 </button>
@@ -3128,15 +2810,17 @@ export default function OperatorPanel({
 
       {/* MODAL: BATCH PASSWORD RESET */}
       {showBatchPasswordModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Key className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A] text-xs">
+            <h3 className="text-base font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-200">
+              <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Key className="w-4 h-4" />
+              </div>
               Resetar Senhas em Lote
             </h3>
 
-            <p className="text-slate-300">
-              Defina a nova senha que será atribuída aos <strong>{selectedUserIds.length}</strong> usuários selecionados:
+            <p className="text-slate-600 font-medium">
+              Defina a nova senha que será atribuída aos <strong className="text-[#0F172A]">{selectedUserIds.length}</strong> usuários selecionados:
             </p>
 
             <form onSubmit={async (e) => {
@@ -3148,28 +2832,28 @@ export default function OperatorPanel({
               setFeedback({ type: 'success', message: `Senhas alteradas para ${selectedUserIds.length} usuário(s).` });
             }} className="space-y-3">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Nova Senha em Lote *</label>
+                <label className="block text-[#0F172A] font-bold mb-1">Nova Senha em Lote *</label>
                 <input
                   type="password"
                   required
                   value={batchPasswordValue}
                   onChange={(e) => setBatchPasswordValue(e.target.value)}
                   placeholder="Digite a nova senha comum"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setShowBatchPasswordModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400 transition-colors"
+                  className="px-5 py-2 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
                 >
                   Redefinir Senhas
                 </button>
@@ -3181,35 +2865,37 @@ export default function OperatorPanel({
 
       {/* MODAL: BATCH DELETE CONFIRMATION */}
       {showBatchDeleteModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-red-900/50 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl text-xs">
-            <h3 className="text-sm font-bold text-red-400 uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A] text-xs">
+            <h3 className="text-base font-bold text-rose-700 uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-200">
+              <div className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
               Confirmar Exclusão em Lote
             </h3>
 
-            <p className="text-slate-300">
-              Tem certeza que deseja excluir permanentemente os <strong>{selectedUserIds.length}</strong> usuário(s) selecionados?
+            <p className="text-slate-600 font-medium">
+              Tem certeza que deseja excluir permanentemente os <strong className="text-[#0F172A]">{selectedUserIds.length}</strong> usuário(s) selecionados?
             </p>
 
-            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 max-h-36 overflow-y-auto space-y-1">
+            <div className="bg-[#F8FAFC] p-3 rounded-xl border border-slate-200 max-h-36 overflow-y-auto space-y-1">
               {users.filter(u => selectedUserIds.includes(u.id)).map(u => (
-                <div key={u.id} className="text-slate-300 font-semibold flex items-center justify-between border-b border-slate-900/60 pb-1">
+                <div key={u.id} className="text-slate-800 font-semibold flex items-center justify-between border-b border-slate-200 pb-1">
                   <span>{u.nome}</span>
                   <span className="text-[10px] text-slate-500 font-mono">{u.email}</span>
                 </div>
               ))}
             </div>
 
-            <p className="text-[11px] text-red-400 font-semibold">
+            <p className="text-[11px] text-rose-700 font-bold">
               ⚠️ Esta operação excluirá permanentemente os registros do banco de dados e revogará os logins.
             </p>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setShowBatchDeleteModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
               >
                 Cancelar
               </button>
@@ -3226,32 +2912,13 @@ export default function OperatorPanel({
                     setFeedback({ type: 'error', message: res.error || 'Erro ao excluir usuários.' });
                   }
                 }}
-                className="px-5 py-2 bg-red-600 text-white font-bold rounded-xl hover:bg-red-500 transition-colors shadow-lg shadow-red-600/20"
+                className="px-5 py-2 bg-[#FFF1F2] text-[#E11D48] border border-[#FECDD3] hover:bg-rose-100 font-bold rounded-xl transition-colors cursor-pointer"
               >
                 Excluir Permanentemente
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* QR SCANNER MODAL FOR OPERATOR */}
-      {showScannerModal && (
-        <QrScannerModal
-          deliveries={deliveries}
-          onSelectDelivery={(del) => {
-            setSelectedDelivery(del);
-            setShowScannerModal(false);
-          }}
-          onConfirmDeliveryByQr={(deliveryId) => {
-            const target = deliveries.find(d => d.id === deliveryId);
-            if (target) {
-              setSelectedDelivery(target);
-              setShowScannerModal(false);
-            }
-          }}
-          onClose={() => setShowScannerModal(false)}
-        />
       )}
 
       </div>

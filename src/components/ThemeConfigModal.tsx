@@ -112,57 +112,59 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl p-6 space-y-6 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+      <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-2xl overflow-hidden shadow-[0_20px_50px_rgba(15,23,42,0.16)] p-6 space-y-6 max-h-[90vh] overflow-y-auto text-[#0F172A]">
         {/* HEADER */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Palette className="w-5 h-5 text-amber-500" />
+            <h3 className="text-lg font-bold text-[#0F172A] flex items-center gap-2">
+              <div className="p-1.5 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Palette className="w-5 h-5 text-amber-600" />
+              </div>
               <span>Personalização Visual e Identidade da Empresa</span>
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500 font-medium mt-1">
               Configure a logo, cores principais, tela de login e modo claro/escuro para a empresa {empresa.nome}.
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white font-mono text-lg">✕</button>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer">✕</button>
         </div>
 
         {/* PRESET THEMES */}
         <div className="space-y-2">
-          <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Paletas de Cores Prontas
+          <label className="block text-xs font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-1">
+            <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Paletas de Cores Prontas
           </label>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {PRESET_THEMES.map((preset) => (
               <button
                 key={preset.name}
                 onClick={() => handleApplyPreset(preset)}
-                className="bg-slate-950 border border-slate-800 hover:border-amber-500 p-2.5 rounded-xl text-left transition-all text-xs"
+                className="bg-[#F8FAFC] border border-slate-200 hover:border-amber-500 p-2.5 rounded-xl text-left transition-all text-xs cursor-pointer"
               >
                 <div className="flex items-center gap-1 mb-1.5">
-                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: preset.primaryColor }} />
-                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: preset.secondaryColor }} />
-                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: preset.buttonColor }} />
+                  <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: preset.primaryColor }} />
+                  <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: preset.secondaryColor }} />
+                  <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: preset.buttonColor }} />
                 </div>
-                <span className="font-semibold text-slate-200 block text-[11px] truncate">{preset.name}</span>
+                <span className="font-bold text-[#0F172A] block text-[11px] truncate">{preset.name}</span>
               </button>
             ))}
           </div>
         </div>
 
         {/* LOGO & BRANDING IMAGES */}
-        <div className="space-y-3 pt-2 border-t border-slate-800">
-          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
-            <Image className="w-3.5 h-3.5 text-amber-400" /> Upload de Logos & Imagens
+        <div className="space-y-3 pt-2 border-t border-slate-200">
+          <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider flex items-center gap-1">
+            <Image className="w-3.5 h-3.5 text-amber-600" /> Upload de Logos & Imagens
           </h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             {/* LOGO */}
-            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
-              <label className="block font-semibold text-slate-300">Logo da Empresa</label>
+            <div className="bg-[#F8FAFC] p-3 rounded-xl border border-slate-200 space-y-2">
+              <label className="block font-bold text-[#0F172A]">Logo da Empresa</label>
               {theme.logoUrl && (
-                <div className="w-full h-14 bg-slate-900 border border-slate-800 rounded-lg flex items-center justify-center p-2">
+                <div className="w-full h-14 bg-white border border-slate-200 rounded-lg flex items-center justify-center p-2">
                   <img src={theme.logoUrl} alt="Logo" className="max-h-full max-w-full object-contain" />
                 </div>
               )}
@@ -170,15 +172,15 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
                 type="file"
                 accept="image/*"
                 onChange={(e) => e.target.files?.[0] && handleImageUpload('logoUrl', e.target.files[0])}
-                className="text-[11px] text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-amber-400"
+                className="text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-700"
               />
             </div>
 
             {/* FAVICON */}
-            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
-              <label className="block font-semibold text-slate-300">Favicon do Navegador</label>
+            <div className="bg-[#F8FAFC] p-3 rounded-xl border border-slate-200 space-y-2">
+              <label className="block font-bold text-[#0F172A]">Favicon do Navegador</label>
               {theme.faviconUrl && (
-                <div className="w-full h-14 bg-slate-900 border border-slate-800 rounded-lg flex items-center justify-center p-2">
+                <div className="w-full h-14 bg-white border border-slate-200 rounded-lg flex items-center justify-center p-2">
                   <img src={theme.faviconUrl} alt="Favicon" className="w-8 h-8 object-contain" />
                 </div>
               )}
@@ -186,78 +188,78 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
                 type="file"
                 accept="image/*"
                 onChange={(e) => e.target.files?.[0] && handleImageUpload('faviconUrl', e.target.files[0])}
-                className="text-[11px] text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-amber-400"
+                className="text-[11px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-700"
               />
             </div>
 
             {/* LOGIN BG */}
-            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2 sm:col-span-2">
-              <label className="block font-semibold text-slate-300">Imagem de Fundo da Tela de Login (URL ou Upload)</label>
+            <div className="bg-[#F8FAFC] p-3 rounded-xl border border-slate-200 space-y-2 sm:col-span-2">
+              <label className="block font-bold text-[#0F172A]">Imagem de Fundo da Tela de Login (URL ou Upload)</label>
               <input
                 type="text"
                 placeholder="https://exemplo.com/fundo-login.jpg"
                 value={theme.loginBgUrl}
                 onChange={(e) => setTheme({ ...theme, loginBgUrl: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-slate-100 text-xs focus:outline-none focus:border-amber-500"
+                className="w-full bg-white border border-[#CBD5E1] rounded-[12px] min-h-[46px] px-3.5 text-xs text-[#0F172A] focus:outline-none focus:border-[#F59E0B]"
               />
             </div>
           </div>
         </div>
 
         {/* CUSTOM COLORS */}
-        <div className="space-y-3 pt-2 border-t border-slate-800">
-          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Cores Personalizadas da Interface</h4>
+        <div className="space-y-3 pt-2 border-t border-slate-200">
+          <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">Cores Personalizadas da Interface</h4>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
             <div>
-              <label className="block text-slate-400 mb-1">Cor Principal</label>
+              <label className="block text-slate-600 font-bold mb-1">Cor Principal</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
                   value={theme.primaryColor}
                   onChange={(e) => setTheme({ ...theme, primaryColor: e.target.value })}
-                  className="w-8 h-8 rounded bg-transparent cursor-pointer border border-slate-700"
+                  className="w-8 h-8 rounded bg-transparent cursor-pointer border border-slate-300"
                 />
                 <input
                   type="text"
                   value={theme.primaryColor}
                   onChange={(e) => setTheme({ ...theme, primaryColor: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] p-2 text-[#0F172A] font-mono text-xs"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Cor Secundária</label>
+              <label className="block text-slate-600 font-bold mb-1">Cor Secundária</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
                   value={theme.secondaryColor}
                   onChange={(e) => setTheme({ ...theme, secondaryColor: e.target.value })}
-                  className="w-8 h-8 rounded bg-transparent cursor-pointer border border-slate-700"
+                  className="w-8 h-8 rounded bg-transparent cursor-pointer border border-slate-300"
                 />
                 <input
                   type="text"
                   value={theme.secondaryColor}
                   onChange={(e) => setTheme({ ...theme, secondaryColor: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] p-2 text-[#0F172A] font-mono text-xs"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-slate-400 mb-1">Cor dos Botões</label>
+              <label className="block text-slate-600 font-bold mb-1">Cor dos Botões</label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
                   value={theme.buttonColor}
                   onChange={(e) => setTheme({ ...theme, buttonColor: e.target.value })}
-                  className="w-8 h-8 rounded bg-transparent cursor-pointer border border-slate-700"
+                  className="w-8 h-8 rounded bg-transparent cursor-pointer border border-slate-300"
                 />
                 <input
                   type="text"
                   value={theme.buttonColor}
                   onChange={(e) => setTheme({ ...theme, buttonColor: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs"
+                  className="w-full bg-white border border-[#CBD5E1] rounded-[12px] p-2 text-[#0F172A] font-mono text-xs"
                 />
               </div>
             </div>
@@ -265,8 +267,8 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
         </div>
 
         {/* DARK / LIGHT MODE PREFERENCE */}
-        <div className="space-y-3 pt-2 border-t border-slate-800">
-          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Modo de Apresentação (Claro / Escuro)</h4>
+        <div className="space-y-3 pt-2 border-t border-slate-200">
+          <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">Modo de Apresentação (Claro / Escuro)</h4>
           <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
@@ -274,10 +276,10 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
                 setTheme({ ...theme, darkModePreference: 'claro' });
                 applyThemeMode('claro');
               }}
-              className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all ${
+              className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
                 theme.darkModePreference === 'claro'
                   ? 'bg-amber-500 text-slate-950 border-amber-400'
-                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
               }`}
             >
               <Sun className="w-4 h-4" />
@@ -290,10 +292,10 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
                 setTheme({ ...theme, darkModePreference: 'escuro' });
                 applyThemeMode('escuro');
               }}
-              className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all ${
+              className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
                 theme.darkModePreference === 'escuro'
                   ? 'bg-amber-500 text-slate-950 border-amber-400'
-                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
               }`}
             >
               <Moon className="w-4 h-4" />
@@ -306,10 +308,10 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
                 setTheme({ ...theme, darkModePreference: 'sistema' });
                 applyThemeMode('sistema');
               }}
-              className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all ${
+              className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
                 theme.darkModePreference === 'sistema'
                   ? 'bg-amber-500 text-slate-950 border-amber-400'
-                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
               }`}
             >
               <Laptop className="w-4 h-4" />
@@ -319,9 +321,9 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
         </div>
 
         {/* FOOTER ACTIONS */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+        <div className="flex items-center justify-between pt-4 border-t border-slate-200">
           {successMsg ? (
-            <span className="text-emerald-400 font-bold text-xs flex items-center gap-1">
+            <span className="text-emerald-600 font-bold text-xs flex items-center gap-1">
               <Check className="w-4 h-4" /> Configurações salvas e aplicadas com sucesso!
             </span>
           ) : (
@@ -331,14 +333,14 @@ export default function ThemeConfigModal({ empresa, isOpen, onClose, onSaved }: 
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold"
+              className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl text-xs font-bold cursor-pointer"
             >
               Cancelar
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1 transition-all"
+              className="px-5 py-2 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] disabled:opacity-50 font-bold rounded-xl text-xs flex items-center gap-1 transition-all cursor-pointer shadow-xs"
             >
               {saving ? 'Salvando...' : 'Salvar e Aplicar Tema'}
             </button>

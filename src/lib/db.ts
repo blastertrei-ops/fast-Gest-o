@@ -11,7 +11,7 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
-import { Empresa, Usuario, Motorista, Veiculo, Entrega, EntregaStatus, HistoricoStatus, UserRole, Cliente, RegistroAuditoria, StorageMetrics, MasterAuditLog, PerfilPermissoes, CompanyStatus } from '../types';
+import { Empresa, Usuario, Motorista, Veiculo, Entrega, EntregaStatus, HistoricoStatus, UserRole, Cliente, RegistroAuditoria, StorageMetrics, MasterAuditLog, PerfilPermissoes, CompanyStatus, GranularPermissions } from '../types';
 
 // Simple hashing function for fallback password validation
 export function hashPassword(password: string): string {
@@ -537,7 +537,7 @@ export const Database = {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        await setDoc(doc(firestoreDb, 'drivers', driverId), fullDriver);
+        await setDoc(doc(firestoreDb, 'drivers', driverId), sanitizeForFirestore(fullDriver));
       }
 
       // 2. If email provided, create user account via Express API
@@ -559,7 +559,7 @@ export const Database = {
       return { success: true, driver: data.driver || fullDriver, user: createdUser };
     } catch (err) {
       console.error('Error creating driver via API, falling back to client SDK:', err);
-      await setDoc(doc(firestoreDb, 'drivers', driverId), fullDriver);
+      await setDoc(doc(firestoreDb, 'drivers', driverId), sanitizeForFirestore(fullDriver));
       if (driverData.email) {
         await this.createUser(companyId, driverData.nome, driverData.email, '123456', 'motorista', driverId);
       }
@@ -567,17 +567,27 @@ export const Database = {
     }
   },
 
-  // Admin User Creation (For operators / drivers) via API + Firestore
-  async createUser(companyId: string, nome: string, email: string, senha: string, role: UserRole, motoristaId?: string): Promise<{ success: boolean; user?: Usuario; error?: string }> {
+  // Admin User Creation (For operators / drivers / master) via API + Firestore
+  async createUser(
+    companyId: string, 
+    nome: string, 
+    email: string, 
+    senha: string, 
+    role: UserRole, 
+    motoristaId?: string,
+    telefone?: string,
+    ativo: boolean = true
+  ): Promise<{ success: boolean; user?: Usuario; error?: string }> {
     const token = localStorage.getItem(JWT_TOKEN_KEY);
+    const resolvedCompanyId = companyId || 'global';
     try {
-      const response = await fetch(`/api/users/${companyId}`, {
+      const response = await fetch(`/api/users/${resolvedCompanyId}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : ''
         },
-        body: JSON.stringify({ nome, email, senha, role, motoristaId })
+        body: JSON.stringify({ nome, email, senha, role, motoristaId, telefone, ativo })
       });
       const data = await response.json();
 
@@ -598,27 +608,68 @@ export const Database = {
       const cleanEmail = email.trim().toLowerCase();
       const exists = inMemoryCache.usuarios.find(u => u.email === cleanEmail);
       if (exists) {
-        return { success: false, error: 'E-mail de usuário já está cadastrado' };
+        return { success: false, error: 'E-mail de usuário já está cadastrado no sistema.' };
       }
 
       const userId = generateId('usr');
+      const isMasterOrAdmin = role === 'master' || role === 'admin';
+      const defaultPerms: GranularPermissions = {
+        criar_clientes: true,
+        editar_clientes: true,
+        excluir_clientes: isMasterOrAdmin,
+        criar_entregas: true,
+        editar_entregas: true,
+        excluir_entregas: isMasterOrAdmin,
+        alterar_status_entregas: true,
+        criar_usuarios: isMasterOrAdmin,
+        excluir_usuarios: isMasterOrAdmin,
+        ver_relatorios: true,
+        exportar_dados: isMasterOrAdmin,
+        configuracoes_empresa: isMasterOrAdmin,
+        dashboard: true,
+        financeiro: isMasterOrAdmin,
+        logs: isMasterOrAdmin,
+        backup: isMasterOrAdmin,
+        ia: true
+      };
+
       const newUser: Usuario = {
         id: userId,
-        companyId,
-        nome,
+        companyId: resolvedCompanyId,
+        organizationId: resolvedCompanyId,
+        tenantId: resolvedCompanyId,
+        nome: nome.trim(),
         email: cleanEmail,
         senhaHash: hashPassword(senha),
-        telefone: '',
+        telefone: telefone ? telefone.trim() : '',
         role,
+        permissoesCustomizadas: defaultPerms,
         motoristaId,
-        ativo: true,
+        ativo: ativo !== false,
         criadoEm: new Date().toISOString()
       };
 
-      await setDoc(doc(firestoreDb, 'usuarios', userId), newUser);
+      await setDoc(doc(firestoreDb, 'usuarios', userId), sanitizeForFirestore(newUser));
 
-      if (role === 'motorista' && motoristaId) {
-        await setDoc(doc(firestoreDb, 'drivers', motoristaId), { userId }, { merge: true });
+      if ((role === 'motorista' || role === 'entregador' || role === 'driver') && motoristaId) {
+        await setDoc(doc(firestoreDb, 'drivers', motoristaId), sanitizeForFirestore({ userId }), { merge: true });
+      } else if ((role === 'motorista' || role === 'entregador' || role === 'driver') && !motoristaId) {
+        const newDriverId = generateId('drv');
+        const newDriver: Motorista = {
+          id: newDriverId,
+          userId: userId,
+          companyId: resolvedCompanyId,
+          nome: nome.trim(),
+          email: cleanEmail,
+          telefone: telefone ? telefone.trim() : '',
+          cpf: '',
+          ativo: true,
+          online: false,
+          criadoEm: new Date().toISOString()
+        };
+        await setDoc(doc(firestoreDb, 'drivers', newDriverId), sanitizeForFirestore(newDriver));
+        newUser.motoristaId = newDriverId;
+        await setDoc(doc(firestoreDb, 'usuarios', userId), sanitizeForFirestore({ motoristaId: newDriverId }), { merge: true });
       }
 
       inMemoryCache.usuarios.push(newUser);
@@ -666,7 +717,7 @@ export const Database = {
         notifySubscribers();
       }
 
-      await setDoc(doc(firestoreDb, 'usuarios', userId), payload, { merge: true });
+      await setDoc(doc(firestoreDb, 'usuarios', userId), sanitizeForFirestore(payload), { merge: true });
       fetch(`/api/users/${companyId || 'global'}/${userId}`, {
         method: 'PUT',
         headers: {

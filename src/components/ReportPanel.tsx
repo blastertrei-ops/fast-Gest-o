@@ -328,27 +328,27 @@ export default function ReportPanel({
     <div className="space-y-8">
       
       {/* 1. RELATÓRIOS E DESEMPENHO DE ENTREGAS */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-lg p-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800">
+      <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs p-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-200">
           <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-1.5">
+            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
               <FileText className="w-5 h-5 text-amber-500" />
               Relatórios e Indicadores Logísticos
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">Filtre, analise e exporte o balanço de entregas do período</p>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">Filtre, analise e exporte o balanço de entregas do período</p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={exportToExcel}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-bold border border-slate-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-200 transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
               Planilha Excel
             </button>
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold rounded-xl text-xs transition-colors shadow-xs"
             >
               <Printer className="w-3.5 h-3.5" />
               Imprimir PDF
@@ -357,33 +357,33 @@ export default function ReportPanel({
         </div>
 
         {/* FILTER CONTROLS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-slate-950/40 p-4 rounded-xl border border-slate-800">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
           <div>
-            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Data Início</label>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Data Início</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500"
+              className="w-full px-3 py-2 bg-white border border-slate-200 text-slate-800 rounded-lg text-xs font-semibold focus:outline-none focus:border-amber-500"
             />
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Data Fim</label>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Data Fim</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500"
+              className="w-full px-3 py-2 bg-white border border-slate-200 text-slate-800 rounded-lg text-xs font-semibold focus:outline-none focus:border-amber-500"
             />
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Filtrar por Motorista</label>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Filtrar por Motorista</label>
             <select
               value={selectedDriverId}
               onChange={(e) => setSelectedDriverId(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-lg text-xs focus:outline-none focus:border-amber-500 font-semibold"
+              className="w-full px-3 py-2 bg-white border border-slate-200 text-slate-800 rounded-lg text-xs font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
             >
               <option value="todos">Todos os Motoristas</option>
               {drivers.map(drv => (
@@ -395,61 +395,61 @@ export default function ReportPanel({
 
         {/* STATS HIGHLIGHT BENTO GRID */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div className="flex justify-between items-start text-slate-500">
-              <span className="text-[10px] font-bold uppercase tracking-wider">Total Período</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Período</span>
               <FileText className="w-4 h-4 text-slate-400" />
             </div>
-            <p className="text-2xl font-bold text-white mt-1">{reportStats.total}</p>
-            <p className="text-[10px] text-slate-500 mt-1">Registradas na base</p>
+            <p className="text-2xl font-black text-slate-900 mt-1">{reportStats.total}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-1">Registradas na base</p>
           </div>
 
-          <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-            <div className="flex justify-between items-start text-emerald-500">
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="flex justify-between items-start text-emerald-600">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Entregas Concluídas</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             </div>
-            <p className="text-2xl font-bold text-white mt-1">{reportStats.deliveredCount}</p>
-            <p className="text-[10px] text-emerald-500 mt-1 font-semibold">
+            <p className="text-2xl font-black text-slate-900 mt-1">{reportStats.deliveredCount}</p>
+            <p className="text-[10px] text-emerald-600 mt-1 font-bold">
               {reportStats.total > 0 ? Math.round((reportStats.deliveredCount / reportStats.total) * 100) : 0}% de sucesso
             </p>
           </div>
 
-          <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
-            <div className="flex justify-between items-start text-indigo-500">
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="flex justify-between items-start text-indigo-600">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Tempo Médio</span>
-              <Clock className="w-4 h-4 text-indigo-400" />
+              <Clock className="w-4 h-4 text-indigo-500" />
             </div>
-            <p className="text-2xl font-bold text-white mt-1">{reportStats.avgTimeMinutes} min</p>
-            <p className="text-[10px] text-slate-500 mt-1">Do início até a conclusão</p>
+            <p className="text-2xl font-black text-slate-900 mt-1">{reportStats.avgTimeMinutes} min</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-1">Do início até a conclusão</p>
           </div>
 
-          <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80">
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div className="flex justify-between items-start text-amber-500">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Faturamento Período</span>
-              <DollarSign className="w-4 h-4 text-amber-400" />
+              <DollarSign className="w-4 h-4 text-amber-500" />
             </div>
-            <p className="text-lg font-black text-amber-400 mt-1 truncate">{formatCurrency(reportStats.totalSalesValue)}</p>
-            <p className="text-[10px] text-slate-500 mt-1">Soma das vendas brutas</p>
+            <p className="text-lg font-black text-amber-600 mt-1 truncate">{formatCurrency(reportStats.totalSalesValue)}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-1">Soma das vendas brutas</p>
           </div>
         </div>
       </div>
 
       {/* 2. MONITOR DE ARMAZENAMENTO E ESTATÍSTICAS DO BANCO DE DADOS */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 shadow-lg">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 mb-5">
           <div className="flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-amber-500" />
             <div>
-              <h2 className="text-base font-bold text-white">Monitor de Armazenamento e Banco de Dados</h2>
-              <p className="text-xs text-slate-400">Consumo de espaço, quantitativo de documentos e estado de integridade</p>
+              <h2 className="text-base font-extrabold text-slate-900">Monitor de Armazenamento e Banco de Dados</h2>
+              <p className="text-xs text-slate-500 font-medium">Consumo de espaço, quantitativo de documentos e estado de integridade</p>
             </div>
           </div>
 
           <button
             onClick={loadMetrics}
             disabled={loadingMetrics}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 rounded-lg border border-slate-700 transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 rounded-xl border border-slate-200 transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loadingMetrics ? 'animate-spin text-amber-500' : ''}`} />
             Atualizar Métricas
@@ -458,70 +458,70 @@ export default function ReportPanel({
 
         {/* METRICS CARDS GRID */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-          <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between text-slate-500 mb-1">
               <span className="text-[10px] font-bold uppercase">Clientes Base</span>
               <Users className="w-3.5 h-3.5 text-slate-400" />
             </div>
-            <p className="text-xl font-bold text-white">{storageMetrics?.totalClientes ?? clients.length}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">{storageMetrics?.totalClientesAtivos ?? clients.length} ativos</p>
+            <p className="text-xl font-extrabold text-slate-900">{storageMetrics?.totalClientes ?? clients.length}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">{storageMetrics?.totalClientesAtivos ?? clients.length} ativos</p>
           </div>
 
-          <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between text-slate-500 mb-1">
-              <span className="text-[10px] font-bold uppercase text-red-400">Excluídos</span>
-              <Trash2 className="w-3.5 h-3.5 text-red-400" />
+              <span className="text-[10px] font-bold uppercase text-rose-600">Excluídos</span>
+              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
             </div>
-            <p className="text-xl font-bold text-white">{storageMetrics?.totalClientesExcluidos ?? 0}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Removidos da base</p>
+            <p className="text-xl font-extrabold text-slate-900">{storageMetrics?.totalClientesExcluidos ?? 0}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">Removidos da base</p>
           </div>
 
-          <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between text-slate-500 mb-1">
               <span className="text-[10px] font-bold uppercase">Entregas</span>
               <Layers className="w-3.5 h-3.5 text-slate-400" />
             </div>
-            <p className="text-xl font-bold text-white">{storageMetrics?.totalEntregas ?? deliveries.length}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Registros na nuvem</p>
+            <p className="text-xl font-extrabold text-slate-900">{storageMetrics?.totalEntregas ?? deliveries.length}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">Registros na nuvem</p>
           </div>
 
-          <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between text-slate-500 mb-1">
               <span className="text-[10px] font-bold uppercase">Comprovantes</span>
-              <FileCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <FileCheck className="w-3.5 h-3.5 text-emerald-500" />
             </div>
-            <p className="text-xl font-bold text-white">{storageMetrics?.totalComprovantes ?? 0}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Assinaturas / baixas</p>
+            <p className="text-xl font-extrabold text-slate-900">{storageMetrics?.totalComprovantes ?? 0}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">Assinaturas / baixas</p>
           </div>
 
-          <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between text-slate-500 mb-1">
               <span className="text-[10px] font-bold uppercase">Fotos Anexas</span>
-              <Image className="w-3.5 h-3.5 text-indigo-400" />
+              <Image className="w-3.5 h-3.5 text-indigo-500" />
             </div>
-            <p className="text-xl font-bold text-white">{storageMetrics?.totalFotos ?? 0}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Fachadas e produtos</p>
+            <p className="text-xl font-extrabold text-slate-900">{storageMetrics?.totalFotos ?? 0}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">Fachadas e produtos</p>
           </div>
 
-          <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+          <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between text-amber-500 mb-1">
               <span className="text-[10px] font-bold uppercase">Espaço Usado</span>
               <DbIcon className="w-3.5 h-3.5 text-amber-500" />
             </div>
-            <p className="text-lg font-black text-amber-400">{storageMetrics?.espacoUtilizadoFormatted ?? '0.5 MB'}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5">Cota atual</p>
+            <p className="text-lg font-black text-amber-600">{storageMetrics?.espacoUtilizadoFormatted ?? '0.5 MB'}</p>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">Cota atual</p>
           </div>
         </div>
 
         {/* PROGRESS BAR */}
-        <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 space-y-2">
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
           <div className="flex justify-between text-xs font-bold">
-            <span className="text-slate-300">Uso de Armazenamento do Banco Central</span>
-            <span className="text-amber-500">{storageMetrics?.espacoUtilizadoFormatted || '0.5 MB'} / 50.0 MB ({storageMetrics?.percentualUso || 1}%)</span>
+            <span className="text-slate-700">Uso de Armazenamento do Banco Central</span>
+            <span className="text-amber-600">{storageMetrics?.espacoUtilizadoFormatted || '0.5 MB'} / 50.0 MB ({storageMetrics?.percentualUso || 1}%)</span>
           </div>
-          <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+          <div className="w-full bg-slate-200/80 rounded-full h-2.5 overflow-hidden border border-slate-200">
             <div 
-              className="bg-gradient-to-r from-amber-500 to-emerald-400 h-2.5 rounded-full transition-all duration-500" 
+              className="bg-gradient-to-r from-amber-500 to-emerald-500 h-2.5 rounded-full transition-all duration-500" 
               style={{ width: `${Math.max(2, storageMetrics?.percentualUso || 2)}%` }}
             ></div>
           </div>
@@ -530,12 +530,12 @@ export default function ReportPanel({
 
       {/* 3. EXCLUSÃO EM MASSA DE CLIENTES & MANUTENÇÃO DO BANCO (ADMIN ONLY) */}
       {currentUser.role === 'admin' && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 shadow-lg space-y-4">
-          <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
-            <ShieldAlert className="w-5 h-5 text-red-500" />
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-200">
+            <ShieldAlert className="w-5 h-5 text-rose-500" />
             <div>
-              <h2 className="text-base font-bold text-white">Exclusão em Massa de Clientes & Limpeza de Dados</h2>
-              <p className="text-xs text-slate-400">Ferramenta restrita a Administradores para expurgo de dados antigos e liberação de espaço</p>
+              <h2 className="text-base font-extrabold text-slate-900">Exclusão em Massa de Clientes & Limpeza de Dados</h2>
+              <p className="text-xs text-slate-500 font-medium">Ferramenta restrita a Administradores para expurgo de dados antigos e liberação de espaço</p>
             </div>
           </div>
 
@@ -547,39 +547,39 @@ export default function ReportPanel({
           )}
 
           {bulkErrorMsg && (
-            <div className="p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-400 text-xs font-bold flex items-center justify-between">
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-bold flex items-center justify-between">
               <span>{bulkErrorMsg}</span>
-              <button onClick={() => setBulkErrorMsg(null)} className="text-slate-400 hover:text-white">✕</button>
+              <button onClick={() => setBulkErrorMsg(null)} className="text-slate-400 hover:text-slate-700">✕</button>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#F8FAFC] p-4 rounded-xl border border-slate-200 text-xs">
             <div>
-              <label className="block text-slate-400 font-bold mb-1">Início do Período</label>
+              <label className="block text-slate-700 font-bold mb-1">Início do Período</label>
               <input
                 type="date"
                 value={bulkStartDate}
                 onChange={(e) => setBulkStartDate(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 text-white rounded-lg p-2.5 focus:outline-none focus:border-amber-500"
+                className="w-full bg-white border border-[#CBD5E1] text-[#0F172A] rounded-[12px] min-h-[42px] px-3 font-medium focus:outline-none focus:border-[#F59E0B]"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 font-bold mb-1">Fim do Período</label>
+              <label className="block text-slate-700 font-bold mb-1">Fim do Período</label>
               <input
                 type="date"
                 value={bulkEndDate}
                 onChange={(e) => setBulkEndDate(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 text-white rounded-lg p-2.5 focus:outline-none focus:border-amber-500"
+                className="w-full bg-white border border-[#CBD5E1] text-[#0F172A] rounded-[12px] min-h-[42px] px-3 font-medium focus:outline-none focus:border-[#F59E0B]"
               />
             </div>
 
             <div>
-              <label className="block text-slate-400 font-bold mb-1">Critério de Exclusão</label>
+              <label className="block text-slate-700 font-bold mb-1">Critério de Exclusão</label>
               <select
                 value={bulkMode}
                 onChange={(e) => setBulkMode(e.target.value as any)}
-                className="w-full bg-slate-900 border border-slate-800 text-white rounded-lg p-2.5 font-bold focus:outline-none focus:border-amber-500"
+                className="w-full bg-white border border-[#CBD5E1] text-[#0F172A] rounded-[12px] min-h-[42px] px-3 font-bold focus:outline-none focus:border-[#F59E0B]"
               >
                 <option value="only_without_deliveries">Apenas clientes SEM entregas</option>
                 <option value="all_with_history">Clientes E histórico de entregas do período</option>
@@ -588,12 +588,12 @@ export default function ReportPanel({
           </div>
 
           <div className="flex items-center justify-between pt-2">
-            <p className="text-[11px] text-slate-500 max-w-xl">
+            <p className="text-[11px] text-slate-500 font-medium max-w-xl">
               ⚠️ A exclusão em massa gera registro no Histórico de Auditoria com horário, responsável e volume de espaço liberado.
             </p>
             <button
               onClick={() => setShowBulkModal(true)}
-              className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-lg shadow-md transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 bg-[#E11D48] hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <Trash2 className="w-4 h-4" />
               Executar Exclusão em Massa
@@ -603,24 +603,26 @@ export default function ReportPanel({
       )}
 
       {/* 4. HISTÓRICO DE AUDITORIA (LOGS DAS EXCLUSÕES) */}
-      <div className="bg-slate-900 rounded-xl border border-slate-800 p-5 shadow-lg">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
           <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-indigo-400" />
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100">
+              <FileText className="w-5 h-5 text-indigo-600" />
+            </div>
             <div>
-              <h2 className="text-base font-bold text-white">Histórico de Auditoria & Segurança</h2>
-              <p className="text-xs text-slate-400">Rastreabilidade completa de exclusões e manutenções do banco de dados</p>
+              <h2 className="text-base font-bold text-slate-900">Histórico de Auditoria & Segurança</h2>
+              <p className="text-xs text-slate-500 font-medium">Rastreabilidade completa de exclusões e manutenções do banco de dados</p>
             </div>
           </div>
         </div>
 
         {auditLogs.length === 0 ? (
-          <div className="text-center py-8 text-xs text-slate-500">Nenhuma ação crítica registrada na auditoria até o momento.</div>
+          <div className="text-center py-8 text-xs text-slate-500 font-medium">Nenhuma ação crítica registrada na auditoria até o momento.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase font-bold">
+                <tr className="border-b border-slate-200 text-slate-500 text-[10px] uppercase font-extrabold">
                   <th className="p-3">Data & Hora</th>
                   <th className="p-3">Ação</th>
                   <th className="p-3">Responsável</th>
@@ -630,18 +632,18 @@ export default function ReportPanel({
               </thead>
               <tbody>
                 {auditLogs.map(log => (
-                  <tr key={log.id} className="border-b border-slate-800/60 hover:bg-slate-800/20">
-                    <td className="p-3 font-mono text-slate-400 whitespace-nowrap">
+                  <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50/80 transition-colors">
+                    <td className="p-3 font-mono text-slate-500 whitespace-nowrap">
                       {log.dataHora && !isNaN(new Date(log.dataHora).getTime()) ? new Date(log.dataHora).toLocaleString('pt-BR') : '-'}
                     </td>
                     <td className="p-3">
-                      <span className="px-2 py-0.5 bg-red-950 text-red-400 border border-red-900/40 rounded text-[10px] font-bold uppercase">
+                      <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md text-[10px] font-bold uppercase">
                         {log.tipoAcao === 'exclusao_cliente' ? 'Exclusão Cliente' : 'Limpeza em Massa'}
                       </span>
                     </td>
-                    <td className="p-3 font-bold text-white">{log.usuarioNome}</td>
-                    <td className="p-3 text-slate-300 max-w-md">{log.descricao}</td>
-                    <td className="p-3 text-right font-mono font-bold text-amber-500">
+                    <td className="p-3 font-bold text-slate-900">{log.usuarioNome}</td>
+                    <td className="p-3 text-slate-600 max-w-md">{log.descricao}</td>
+                    <td className="p-3 text-right font-mono font-bold text-amber-600">
                       {log.detalhes?.espacoLiberadoBytes 
                         ? `${(log.detalhes.espacoLiberadoBytes / 1024).toFixed(1)} KB` 
                         : 'Liberado'}
@@ -656,29 +658,29 @@ export default function ReportPanel({
 
       {/* DOUBLE CONFIRMATION MODAL FOR BULK CLEANUP */}
       {showBulkModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-red-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center gap-2 text-red-500">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-5 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <div className="flex items-center gap-2 text-rose-600">
               <ShieldAlert className="w-6 h-6" />
-              <h3 className="text-base font-bold text-white">CONFIRMAÇÃO DE SEGURANÇA</h3>
+              <h3 className="text-base font-bold text-[#0F172A]">CONFIRMAÇÃO DE SEGURANÇA</h3>
             </div>
 
-            <div className="p-3.5 bg-red-950/50 border border-red-900/60 rounded-xl text-xs text-red-300 space-y-2">
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-2">
               <p className="font-bold">⚠️ ATENÇÃO: Esta ação é permanente e irreversível!</p>
-              <p>Você está prestes a excluir todos os clientes e dados do período de <span className="font-mono font-bold text-white">{bulkStartDate}</span> até <span className="font-mono font-bold text-white">{bulkEndDate}</span>.</p>
-              <p className="text-[11px] text-slate-400">Modalidade: {bulkMode === 'only_without_deliveries' ? 'Apenas clientes sem entregas vinculadas' : 'Clientes E todo histórico de entregas'}.</p>
+              <p>Você está prestes a excluir todos os clientes e dados do período de <span className="font-mono font-bold text-[#0F172A]">{bulkStartDate}</span> até <span className="font-mono font-bold text-[#0F172A]">{bulkEndDate}</span>.</p>
+              <p className="text-[11px] text-slate-600">Modalidade: {bulkMode === 'only_without_deliveries' ? 'Apenas clientes sem entregas vinculadas' : 'Clientes E todo histórico de entregas'}.</p>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">
-                Para confirmar, digite <span className="text-red-400 uppercase font-mono font-black">EXCLUIR</span> no campo abaixo:
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Para confirmar, digite <span className="text-rose-600 uppercase font-mono font-black">EXCLUIR</span> no campo abaixo:
               </label>
               <input
                 type="text"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder="Digite EXCLUIR"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white uppercase font-mono font-bold focus:outline-none focus:border-red-500"
+                className="w-full bg-white border border-[#CBD5E1] rounded-[12px] p-2.5 text-xs text-[#0F172A] uppercase font-mono font-bold focus:outline-none focus:border-rose-500"
               />
             </div>
 
@@ -686,7 +688,7 @@ export default function ReportPanel({
               <button
                 type="button"
                 onClick={() => { setShowBulkModal(false); setConfirmText(''); }}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold hover:bg-slate-700"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold cursor-pointer"
               >
                 Cancelar
               </button>
@@ -694,10 +696,10 @@ export default function ReportPanel({
                 type="button"
                 disabled={confirmText.trim().toUpperCase() !== 'EXCLUIR' || isExecutingBulk}
                 onClick={handleExecuteBulkCleanup}
-                className={`px-4 py-2 rounded-lg font-bold text-white transition-all ${
+                className={`px-4 py-2 rounded-xl font-bold text-white transition-all cursor-pointer ${
                   confirmText.trim().toUpperCase() === 'EXCLUIR' && !isExecutingBulk
-                    ? 'bg-red-600 hover:bg-red-500 shadow-lg shadow-red-600/30'
-                    : 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                    ? 'bg-[#E11D48] hover:bg-rose-700 shadow-xs'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
               >
                 {isExecutingBulk ? 'Limpando...' : 'Confirmar Exclusão Irreversível'}

@@ -8,9 +8,9 @@ export type ThemeMode = 'claro' | 'escuro' | 'sistema';
  * Get current active theme mode
  */
 export function getStoredThemeMode(): ThemeMode {
-  if (typeof localStorage === 'undefined') return 'escuro';
+  if (typeof localStorage === 'undefined') return 'claro';
   const saved = localStorage.getItem(THEME_PREF_KEY) as ThemeMode;
-  return saved || 'escuro';
+  return saved || 'claro';
 }
 
 /**
@@ -76,14 +76,15 @@ export function applyCompanyTheme(themeConfig?: CompanyThemeConfig) {
 }
 
 /**
- * Get default company theme object
+ * Default company theme object (Light Corporate theme)
  */
 export const DEFAULT_COMPANY_THEME: CompanyThemeConfig = {
-  primaryColor: '#F59E0B', // Cor principal
-  secondaryColor: '#FBBF24', // Cor de destaque
-  buttonColor: '#F59E0B',
-  menuColor: '#0F172A', // Fundo
-  cardColor: '#1E293B', // Cards
-  tagColor: '#334155',
-  darkModePreference: 'escuro'
+  primaryColor: '#0066FF',   // Azul Principal Fast Gestão (#0066FF)
+  secondaryColor: '#00A3FF', // Azul Secundário / Gradiente (#00A3FF)
+  buttonColor: '#F59E0B',    // Laranja Ações Principais (#F59E0B)
+  menuColor: '#132238',      // Sidebar Azul Escuro Corporativo
+  cardColor: '#FFFFFF',      // Cards Branco
+  tagColor: '#E5E7EB',
+  darkModePreference: 'claro'
 };
+

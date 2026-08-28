@@ -180,6 +180,8 @@ export interface PerfilPermissoes {
 export interface Usuario {
   id: string;
   companyId: string; // Isolamento por empresa
+  organizationId?: string; // Vínculo da Organização
+  tenantId?: string; // Isolamento Multitenant
   nome: string;
   email: string;
   senhaHash: string; // Para autenticação real simulada
@@ -213,6 +215,9 @@ export interface Motorista {
   validadeCNH?: string;
   observacoes?: string;
   ativo: boolean;
+  online?: boolean;
+  rotaAtual?: string | null;
+  ultimaLocalizacao?: any;
   criadoEm: string;
   
   // Dados do veículo (opcionais)
@@ -374,6 +379,7 @@ export interface Entrega {
   origem: 'manual' | 'integracao_loja' | 'qrcode';
   historico?: HistoricoStatus[];
   customValues?: Record<string, any>;
+  formSnapshot?: DeliveryFormConfig;
   qrCodeId?: string;
 }
 

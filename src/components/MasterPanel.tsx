@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Database } from '../lib/db';
 import CepInput from './CepInput';
-import FastGestaoLogo from './FastGestaoLogo';
+import BrandLogo from './BrandLogo';
 import { 
   Empresa, Usuario, MasterAuditLog, PerfilPermissoes, CompanyStatus, PlanoTipo, CompanyLimits, GranularPermissions, UserRole 
 } from '../types';
@@ -85,8 +85,11 @@ export default function MasterPanel({
     companyId: '',
     nome: '',
     email: '',
+    telefone: '',
     senha: '',
-    role: 'admin' as UserRole
+    confirmSenha: '',
+    role: 'admin' as UserRole,
+    ativo: true
   });
 
   // User Selection & Batch Action State
@@ -317,31 +320,31 @@ export default function MasterPanel({
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F5F7FA] text-slate-800 flex flex-col font-sans">
       
       {/* MASTER TOP HEADER */}
-      <header className="bg-slate-900 border-b border-amber-500/30 px-6 py-4 flex flex-wrap items-center justify-between shadow-xl">
-        <div className="flex items-center gap-3">
-          <FastGestaoLogo size={40} />
+      <header className="bg-[#132238] border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between shadow-md text-white">
+        <div className="flex items-center gap-4">
+          <BrandLogo size={40} className="w-[40px] h-[40px] object-contain shrink-0" />
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-black text-white tracking-tight">FAST GESTÃO — PAINEL MASTER</h1>
-              <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+              <h1 className="text-base font-extrabold text-white tracking-tight">FAST — PAINEL MASTER</h1>
+              <span className="bg-amber-500 text-slate-950 font-extrabold text-[10px] px-2 py-0.5 rounded-full uppercase">
                 Super Admin
               </span>
             </div>
-            <p className="text-xs text-amber-400/80 font-medium">Gestão Global Multiempresas, Licenciamento & Faturamento SaaS</p>
+            <p className="text-xs text-slate-300 font-medium">Gestão Global Multiempresas, Licenciamento & Faturamento SaaS</p>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="text-right hidden sm:block">
-            <p className="text-xs font-semibold text-slate-200">{currentUser.nome}</p>
-            <p className="text-[11px] text-slate-400">{currentUser.email}</p>
+            <p className="text-xs font-bold text-white">{currentUser.nome}</p>
+            <p className="text-[11px] text-slate-300">{currentUser.email}</p>
           </div>
           <button
             onClick={onLogout}
-            className="px-3.5 py-2 bg-red-950/30 hover:bg-red-900/40 text-red-400 border border-red-900/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+            className="px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
           >
             <LogOut className="w-4 h-4" />
             Sair
@@ -351,25 +354,25 @@ export default function MasterPanel({
 
       {/* FEEDBACK BANNER */}
       {feedback && (
-        <div className={`px-6 py-3 border-b text-xs font-medium flex items-center justify-between animate-fade-in ${
+        <div className={`px-6 py-3 border-b text-xs font-semibold flex items-center justify-between animate-fade-in ${
           feedback.type === 'success' 
-            ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200' 
-            : 'bg-red-950/60 border-red-800 text-red-200'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+            : 'bg-red-50 border-red-200 text-red-800'
         }`}>
           <div className="flex items-center gap-2">
-            {feedback.type === 'success' ? <CheckCircle className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-red-400" />}
+            {feedback.type === 'success' ? <CheckCircle className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-red-600" />}
             <span>{feedback.message}</span>
           </div>
-          <button onClick={() => setFeedback(null)} className="text-slate-400 hover:text-white">✕</button>
+          <button onClick={() => setFeedback(null)} className="text-slate-500 hover:text-slate-800">✕</button>
         </div>
       )}
 
       {/* NAVIGATION TABS */}
-      <div className="bg-slate-900/80 border-b border-slate-800 px-6 py-2 flex items-center gap-2 overflow-x-auto">
+      <div className="bg-white border-b border-slate-200 px-6 py-2.5 flex items-center gap-2 overflow-x-auto shadow-xs">
         <button
           onClick={() => setActiveTab('overview')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-            activeTab === 'overview' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            activeTab === 'overview' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Activity className="w-4 h-4" />
@@ -379,7 +382,7 @@ export default function MasterPanel({
         <button
           onClick={() => setActiveTab('companies')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-            activeTab === 'companies' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            activeTab === 'companies' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Building className="w-4 h-4" />
@@ -389,7 +392,7 @@ export default function MasterPanel({
         <button
           onClick={() => setActiveTab('users')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-            activeTab === 'users' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            activeTab === 'users' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -399,7 +402,7 @@ export default function MasterPanel({
         <button
           onClick={() => setActiveTab('finance')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-            activeTab === 'finance' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            activeTab === 'finance' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <DollarSign className="w-4 h-4" />
@@ -409,7 +412,7 @@ export default function MasterPanel({
         <button
           onClick={() => setActiveTab('roles')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-            activeTab === 'roles' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            activeTab === 'roles' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Shield className="w-4 h-4" />
@@ -419,7 +422,7 @@ export default function MasterPanel({
         <button
           onClick={() => setActiveTab('plans')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-            activeTab === 'plans' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            activeTab === 'plans' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Layers className="w-4 h-4" />
@@ -429,7 +432,7 @@ export default function MasterPanel({
         <button
           onClick={() => setActiveTab('audit')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-            activeTab === 'audit' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            activeTab === 'audit' ? 'bg-amber-500 text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <FileText className="w-4 h-4" />
@@ -438,7 +441,7 @@ export default function MasterPanel({
       </div>
 
       {/* MAIN CONTAINER */}
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6 overflow-y-auto">
+      <main className="flex-1 page-content space-y-6 overflow-y-auto">
 
         {/* TAB 1: VISÃO GERAL SAAS */}
         {activeTab === 'overview' && (
@@ -447,56 +450,56 @@ export default function MasterPanel({
             {/* KPI CARDS */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs relative overflow-hidden">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total de Lojas</span>
-                  <div className="w-9 h-9 bg-amber-500/10 text-amber-400 rounded-xl flex items-center justify-center">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total de Lojas</span>
+                  <div className="w-9 h-9 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center font-bold">
                     <Building className="w-5 h-5" />
                   </div>
                 </div>
-                <div className="text-2xl font-black text-white mb-1">{totalCompanies}</div>
-                <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                  <span className="text-emerald-400 font-bold">{activeCompanies} ativas</span> • 
-                  <span className="text-amber-400">{suspendedCompanies} suspensas</span> • 
-                  <span className="text-red-400">{blockedCompanies} bloqueadas</span>
+                <div className="text-3xl font-extrabold text-slate-900 mb-1">{totalCompanies}</div>
+                <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+                  <span className="text-emerald-700 font-bold">{activeCompanies} ativas</span> • 
+                  <span className="text-amber-700 font-bold">{suspendedCompanies} suspensas</span> • 
+                  <span className="text-rose-700 font-bold">{blockedCompanies} bloqueadas</span>
                 </div>
               </div>
 
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs relative overflow-hidden">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">MRR Projetado</span>
-                  <div className="w-9 h-9 bg-emerald-500/10 text-emerald-400 rounded-xl flex items-center justify-center">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">MRR Projetado</span>
+                  <div className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
                     <DollarSign className="w-5 h-5" />
                   </div>
                 </div>
-                <div className="text-2xl font-black text-emerald-400 mb-1">{formatCurrency(mrr)}</div>
-                <div className="text-[11px] text-slate-400">
-                  ARR Estimado: <strong className="text-white">{formatCurrency(arr)}</strong>
+                <div className="text-3xl font-extrabold text-emerald-600 mb-1">{formatCurrency(mrr)}</div>
+                <div className="text-[11px] text-slate-500 font-medium">
+                  ARR Estimado: <strong className="text-slate-900">{formatCurrency(arr)}</strong>
                 </div>
               </div>
 
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs relative overflow-hidden">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Usuários do Sistema</span>
-                  <div className="w-9 h-9 bg-blue-500/10 text-blue-400 rounded-xl flex items-center justify-center">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Usuários do Sistema</span>
+                  <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
                     <Users className="w-5 h-5" />
                   </div>
                 </div>
-                <div className="text-2xl font-black text-white mb-1">{totalUsers}</div>
-                <div className="text-[11px] text-slate-400">
+                <div className="text-3xl font-extrabold text-slate-900 mb-1">{totalUsers}</div>
+                <div className="text-[11px] text-slate-500 font-medium">
                   {totalAdmins} Admins • {totalDrivers} Entregadores
                 </div>
               </div>
 
-              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs relative overflow-hidden">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Status da Plataforma</span>
-                  <div className="w-9 h-9 bg-purple-500/10 text-purple-400 rounded-xl flex items-center justify-center">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status da Plataforma</span>
+                  <div className="w-9 h-9 bg-purple-50 text-purple-600 rounded-xl flex items-center justify-center font-bold">
                     <Zap className="w-5 h-5" />
                   </div>
                 </div>
-                <div className="text-2xl font-black text-emerald-400 mb-1">100% Online</div>
-                <div className="text-[11px] text-slate-400">
+                <div className="text-3xl font-extrabold text-emerald-600 mb-1">100% Online</div>
+                <div className="text-[11px] text-slate-500 font-medium">
                   Isolamento Multi-Tenant Ativo
                 </div>
               </div>
@@ -504,15 +507,15 @@ export default function MasterPanel({
             </div>
 
             {/* RECENT COMPANIES LIST BRIEF */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-xs text-slate-800">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-200">
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                   <Building className="w-4 h-4 text-amber-500" />
                   Últimas Lojas Cadastradas
                 </h3>
                 <button 
                   onClick={() => setActiveTab('companies')}
-                  className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1"
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
                 >
                   Ver Todas ({companies.length})
                   <ChevronRight className="w-3.5 h-3.5" />
@@ -521,31 +524,31 @@ export default function MasterPanel({
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {companies.slice(0, 6).map(comp => (
-                  <div key={comp.id} className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-all">
+                  <div key={comp.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-slate-300 transition-all">
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <h4 className="text-xs font-bold text-white">{comp.nome}</h4>
-                        <p className="text-[11px] text-slate-400">{comp.nomeFantasia || comp.cnpj || 'Sem CNPJ'}</p>
+                        <h4 className="text-xs font-bold text-slate-900">{comp.nome}</h4>
+                        <p className="text-[11px] text-slate-500">{comp.nomeFantasia || comp.cnpj || 'Sem CNPJ'}</p>
                       </div>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border ${
-                        comp.status === 'ativa' ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800' :
-                        comp.status === 'suspensa' ? 'bg-amber-950/60 text-amber-400 border-amber-800' :
-                        'bg-red-950/60 text-red-400 border-red-800'
+                        comp.status === 'ativa' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                        comp.status === 'suspensa' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        'bg-rose-50 text-rose-700 border-rose-200'
                       }`}>
                         {comp.status}
                       </span>
                     </div>
 
-                    <div className="text-[11px] text-slate-400 space-y-1 mb-3 pt-2 border-t border-slate-800/80">
-                      <div>Plano: <strong className="text-amber-400">{comp.planoContratado || 'Profissional'}</strong> ({formatCurrency(comp.valorPlano || 199)})</div>
-                      <div>Vencimento: <span className="text-slate-300">{formatDate(comp.dataVencimento)}</span></div>
+                    <div className="text-[11px] text-slate-600 space-y-1 mb-3 pt-2 border-t border-slate-200">
+                      <div>Plano: <strong className="text-slate-900">{comp.planoContratado || 'Profissional'}</strong> ({formatCurrency(comp.valorPlano || 199)})</div>
+                      <div>Vencimento: <span className="text-slate-700">{formatDate(comp.dataVencimento)}</span></div>
                     </div>
 
                     <button
                       onClick={() => onEnterSupportMode(comp)}
-                      className="w-full py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition-colors flex items-center justify-center gap-1.5"
+                      className="w-full py-1.5 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold rounded-lg border border-slate-300 transition-colors flex items-center justify-center gap-1.5 shadow-xs"
                     >
-                      <Eye className="w-3.5 h-3.5 text-amber-400" />
+                      <Eye className="w-3.5 h-3.5 text-blue-600" />
                       Acessar no Modo Suporte
                     </button>
                   </div>
@@ -1831,17 +1834,41 @@ export default function MasterPanel({
 
       {/* MODAL: CREATE USER */}
       {showCreateUserModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <User className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-lg p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] max-h-[90vh] overflow-y-auto text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-100">
+              <div className="p-1 bg-amber-500/10 text-amber-600 rounded-lg">
+                <User className="w-4 h-4 text-amber-600" />
+              </div>
               Cadastrar Novo Usuário de Acesso
             </h3>
+
+            {companies.length === 0 && (
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between gap-2">
+                <span className="text-amber-800 text-xs font-semibold">
+                  Nenhuma empresa cadastrada na plataforma. Deseja cadastrar uma empresa agora?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateUserModal(false);
+                    setShowCreateModal(true);
+                  }}
+                  className="px-3 py-1 bg-[#FF9800] text-[#111827] text-xs font-bold rounded-lg hover:bg-amber-500 shrink-0 cursor-pointer"
+                >
+                  + Criar Empresa
+                </button>
+              </div>
+            )}
 
             <form onSubmit={async (e) => {
               e.preventDefault();
               if (!newUserForm.companyId || !newUserForm.nome || !newUserForm.email || !newUserForm.senha) {
-                setFeedback({ type: 'error', message: 'Preencha todos os campos obrigatórios.' });
+                setFeedback({ type: 'error', message: 'Preencha todos os campos obrigatórios (*).' });
+                return;
+              }
+              if (newUserForm.senha !== newUserForm.confirmSenha) {
+                setFeedback({ type: 'error', message: 'As senhas digitadas não coincidem.' });
                 return;
               }
               setIsSubmitting(true);
@@ -1850,27 +1877,39 @@ export default function MasterPanel({
                 newUserForm.nome,
                 newUserForm.email,
                 newUserForm.senha,
-                newUserForm.role
+                newUserForm.role,
+                undefined,
+                newUserForm.telefone,
+                newUserForm.ativo
               );
               setIsSubmitting(false);
               if (res.success) {
                 setFeedback({ type: 'success', message: `Usuário ${newUserForm.nome} cadastrado com sucesso!` });
                 setShowCreateUserModal(false);
-                setNewUserForm({ companyId: '', nome: '', email: '', senha: '', role: 'admin' });
+                setNewUserForm({
+                  companyId: '',
+                  nome: '',
+                  email: '',
+                  telefone: '',
+                  senha: '',
+                  confirmSenha: '',
+                  role: 'admin',
+                  ativo: true
+                });
               } else {
                 setFeedback({ type: 'error', message: res.error || 'Erro ao criar usuário.' });
               }
             }} className="space-y-4 text-xs">
               
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Empresa Destino *</label>
+                <label className="block text-[#475569] font-bold mb-1">Empresa Destino *</label>
                 <select
                   required
                   value={newUserForm.companyId}
                   onChange={(e) => setNewUserForm({ ...newUserForm, companyId: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 >
-                  <option value="">-- Selecione a Empresa --</option>
+                  <option value="">-- Selecione a Empresa Destino --</option>
                   <option value="global">Plataforma Global (Master)</option>
                   {companies.map(c => (
                     <option key={c.id} value={c.id}>{c.nome}</option>
@@ -1879,69 +1918,111 @@ export default function MasterPanel({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Nome Completo *</label>
+                <label className="block text-[#475569] font-bold mb-1">Nome Completo *</label>
                 <input
                   type="text"
                   required
                   value={newUserForm.nome}
                   onChange={(e) => setNewUserForm({ ...newUserForm, nome: e.target.value })}
                   placeholder="Nome do usuário"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">E-mail de Login *</label>
-                <input
-                  type="email"
-                  required
-                  value={newUserForm.email}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
-                  placeholder="usuario@empresa.com"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#475569] font-bold mb-1">E-mail de Login *</label>
+                  <input
+                    type="email"
+                    required
+                    value={newUserForm.email}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                    placeholder="usuario@empresa.com"
+                    className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[#475569] font-bold mb-1">Telefone / WhatsApp</label>
+                  <input
+                    type="text"
+                    value={newUserForm.telefone}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, telefone: e.target.value })}
+                    placeholder="(11) 99999-9999"
+                    className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Senha Inicial *</label>
-                <input
-                  type="password"
-                  required
-                  value={newUserForm.senha}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, senha: e.target.value })}
-                  placeholder="Digite a senha"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#475569] font-bold mb-1">Senha *</label>
+                  <input
+                    type="password"
+                    required
+                    value={newUserForm.senha}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, senha: e.target.value })}
+                    placeholder="Digite a senha"
+                    className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[#475569] font-bold mb-1">Confirmar Senha *</label>
+                  <input
+                    type="password"
+                    required
+                    value={newUserForm.confirmSenha}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, confirmSenha: e.target.value })}
+                    placeholder="Repita a senha"
+                    className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Perfil de Acesso *</label>
-                <select
-                  value={newUserForm.role}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value as UserRole })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
-                >
-                  <option value="admin">Administrador da Empresa</option>
-                  <option value="operador">Operador (Atendente/Logística)</option>
-                  <option value="motorista">Entregador / Motorista</option>
-                  <option value="master">Super Administrador (Master)</option>
-                </select>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#475569] font-bold mb-1">Perfil de Acesso *</label>
+                  <select
+                    value={newUserForm.role}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value as UserRole })}
+                    className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-bold rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
+                  >
+                    <option value="admin">Administrador da Empresa</option>
+                    <option value="operador">Operador (Atendente / Logística)</option>
+                    <option value="expedidor">Expedidor / Despachante</option>
+                    <option value="motorista">Entregador / Motorista</option>
+                    <option value="master">Super Administrador (Master)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[#475569] font-bold mb-1">Status da Conta</label>
+                  <select
+                    value={newUserForm.ativo ? 'true' : 'false'}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, ativo: e.target.value === 'true' })}
+                    className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-bold rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
+                  >
+                    <option value="true">Ativo</option>
+                    <option value="false">Inativo / Bloqueado</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowCreateUserModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400"
+                  className="px-5 py-2 bg-[#FF9800] text-[#111827] font-bold rounded-xl hover:bg-amber-500 transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
                 >
-                  Criar Usuário
+                  {isSubmitting ? 'Salvando...' : 'Criar Usuário'}
                 </button>
               </div>
             </form>
@@ -1951,16 +2032,18 @@ export default function MasterPanel({
 
       {/* MODAL: RESET PASSWORD */}
       {showResetPasswordModal && selectedUserForPassword && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Key className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-100">
+              <div className="p-1 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Key className="w-4 h-4 text-amber-600" />
+              </div>
               Alterar / Resetar Senha
             </h3>
 
-            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs">
-              <div className="text-slate-400">Usuário: <strong className="text-white">{selectedUserForPassword.nome}</strong></div>
-              <div className="text-slate-400">E-mail: <span className="text-slate-300 font-mono">{selectedUserForPassword.email}</span></div>
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+              <div className="text-slate-600 font-medium">Usuário: <strong className="text-[#0F172A]">{selectedUserForPassword.nome}</strong></div>
+              <div className="text-slate-600 font-medium">E-mail: <span className="text-slate-800 font-mono font-semibold">{selectedUserForPassword.email}</span></div>
             </div>
 
             <form onSubmit={async (e) => {
@@ -1981,29 +2064,29 @@ export default function MasterPanel({
               }
             }} className="space-y-4 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Nova Senha *</label>
+                <label className="block text-[#475569] font-bold mb-1">Nova Senha *</label>
                 <input
                   type="password"
                   required
                   value={newPasswordValue}
                   onChange={(e) => setNewPasswordValue(e.target.value)}
                   placeholder="Digite a nova senha"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowResetPasswordModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400"
+                  className="px-5 py-2 bg-[#FF9800] text-[#111827] font-bold rounded-xl hover:bg-amber-500 transition-colors shadow-xs cursor-pointer"
                 >
                   Salvar Nova Senha
                 </button>
@@ -2015,10 +2098,12 @@ export default function MasterPanel({
 
       {/* MODAL: EDIT USER DETAILS (SINGLE SELECTION) */}
       {showEditUserModal && userToEdit && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Edit3 className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-100">
+              <div className="p-1 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Edit3 className="w-4 h-4 text-amber-600" />
+              </div>
               Editar Dados do Usuário
             </h3>
 
@@ -2042,33 +2127,33 @@ export default function MasterPanel({
               }
             }} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Nome Completo *</label>
+                <label className="block text-[#475569] font-bold mb-1">Nome Completo *</label>
                 <input
                   type="text"
                   required
                   value={editUserForm.nome}
                   onChange={(e) => setEditUserForm({ ...editUserForm, nome: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">E-mail *</label>
+                <label className="block text-[#475569] font-bold mb-1">E-mail *</label>
                 <input
                   type="email"
                   required
                   value={editUserForm.email}
                   onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Empresa Associada *</label>
+                <label className="block text-[#475569] font-bold mb-1">Empresa Associada *</label>
                 <select
                   value={editUserForm.companyId}
                   onChange={(e) => setEditUserForm({ ...editUserForm, companyId: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 >
                   <option value="global">Plataforma Global (Master)</option>
                   {companies.map(c => (
@@ -2078,11 +2163,11 @@ export default function MasterPanel({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Perfil de Acesso *</label>
+                <label className="block text-[#475569] font-bold mb-1">Perfil de Acesso *</label>
                 <select
                   value={editUserForm.role}
                   onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value as UserRole })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-bold rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 >
                   <option value="admin">Administrador da Empresa</option>
                   <option value="operador">Operador</option>
@@ -2092,29 +2177,29 @@ export default function MasterPanel({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Status de Acesso</label>
+                <label className="block text-[#475569] font-bold mb-1">Status de Acesso</label>
                 <select
                   value={editUserForm.ativo ? 'true' : 'false'}
                   onChange={(e) => setEditUserForm({ ...editUserForm, ativo: e.target.value === 'true' })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-bold rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 >
                   <option value="true">Ativo / Liberado</option>
                   <option value="false">Bloqueado / Suspenso</option>
                 </select>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowEditUserModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400"
+                  className="px-5 py-2 bg-[#FF9800] text-[#111827] font-bold rounded-xl hover:bg-amber-500 transition-colors shadow-xs cursor-pointer"
                 >
                   Salvar Alterações
                 </button>
@@ -2126,24 +2211,26 @@ export default function MasterPanel({
 
       {/* MODAL: CHANGE ROLE (BATCH) */}
       {showChangeRoleModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Shield className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-100">
+              <div className="p-1 bg-indigo-50 text-indigo-600 rounded-lg">
+                <Shield className="w-4 h-4 text-indigo-600" />
+              </div>
               Alterar Perfil em Lote
             </h3>
 
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-600">
               Selecione o novo perfil de acesso que será aplicado a <strong>{selectedUserIds.length}</strong> usuário(s) selecionado(s):
             </p>
 
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Novo Perfil *</label>
+                <label className="block text-[#475569] font-bold mb-1">Novo Perfil *</label>
                 <select
                   value={batchRoleValue}
                   onChange={(e) => setBatchRoleValue(e.target.value as UserRole)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-bold rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 >
                   <option value="admin">Administrador</option>
                   <option value="operador">Operador</option>
@@ -2152,11 +2239,11 @@ export default function MasterPanel({
                 </select>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowChangeRoleModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -2170,7 +2257,7 @@ export default function MasterPanel({
                     setShowChangeRoleModal(false);
                     setFeedback({ type: 'success', message: `Perfil alterado para ${batchRoleValue} em ${selectedUserIds.length} usuário(s).` });
                   }}
-                  className="px-5 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-colors"
+                  className="px-5 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-colors shadow-xs cursor-pointer"
                 >
                   Aplicar Novo Perfil
                 </button>
@@ -2182,14 +2269,16 @@ export default function MasterPanel({
 
       {/* MODAL: BATCH PASSWORD RESET */}
       {showBatchPasswordModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Key className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-100">
+              <div className="p-1 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Key className="w-4 h-4 text-amber-600" />
+              </div>
               Resetar Senhas em Lote
             </h3>
 
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-600">
               Defina a nova senha que será atribuída a todos os <strong>{selectedUserIds.length}</strong> usuários selecionados:
             </p>
 
@@ -2204,29 +2293,29 @@ export default function MasterPanel({
               setFeedback({ type: 'success', message: `Senha redefinida com sucesso para ${selectedUserIds.length} usuário(s).` });
             }} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Nova Senha em Lote *</label>
+                <label className="block text-[#475569] font-bold mb-1">Nova Senha em Lote *</label>
                 <input
                   type="password"
                   required
                   value={batchPasswordValue}
                   onChange={(e) => setBatchPasswordValue(e.target.value)}
                   placeholder="Digite a nova senha comum"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowBatchPasswordModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400 transition-colors"
+                  className="px-5 py-2 bg-[#FF9800] text-[#111827] font-bold rounded-xl hover:bg-amber-500 transition-colors shadow-xs cursor-pointer"
                 >
                   Redefinir Senhas
                 </button>
@@ -2238,35 +2327,37 @@ export default function MasterPanel({
 
       {/* MODAL: CONFIRM BATCH DELETE USERS */}
       {showBatchDeleteModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-red-900/50 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-red-400 uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-rose-200 rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-rose-700 uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-rose-100">
+              <div className="p-1 bg-rose-50 text-rose-600 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              </div>
               Confirmar Exclusão em Lote
             </h3>
 
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-600">
               Tem certeza que deseja excluir permanentemente os <strong>{selectedUserIds.length}</strong> usuário(s) selecionados abaixo?
             </p>
 
-            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 max-h-36 overflow-y-auto space-y-1 text-xs">
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 max-h-36 overflow-y-auto space-y-1 text-xs">
               {users.filter(u => selectedUserIds.includes(u.id)).map(u => (
-                <div key={u.id} className="text-slate-300 font-semibold flex items-center justify-between border-b border-slate-900/60 pb-1">
+                <div key={u.id} className="text-slate-800 font-semibold flex items-center justify-between border-b border-slate-200/60 pb-1">
                   <span>{u.nome}</span>
                   <span className="text-[10px] text-slate-500 font-mono">{u.email}</span>
                 </div>
               ))}
             </div>
 
-            <p className="text-[11px] text-red-400 font-semibold">
+            <p className="text-[11px] text-rose-600 font-semibold">
               ⚠️ Esta ação removerá os registros do banco de dados e não poderá ser desfeita.
             </p>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setShowBatchDeleteModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
@@ -2286,7 +2377,7 @@ export default function MasterPanel({
                     setFeedback({ type: 'error', message: res.error || 'Erro ao excluir usuários.' });
                   }
                 }}
-                className="px-5 py-2 bg-red-600 text-white font-bold text-xs rounded-xl hover:bg-red-500 transition-colors shadow-lg shadow-red-600/20"
+                className="px-5 py-2 bg-rose-600 text-white font-bold text-xs rounded-xl hover:bg-rose-700 transition-colors shadow-xs cursor-pointer"
               >
                 Excluir Permanentemente
               </button>
@@ -2297,35 +2388,37 @@ export default function MasterPanel({
 
       {/* MODAL: CONFIRM BATCH DELETE COMPANIES */}
       {showCompanyBatchDeleteModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-red-900/50 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-red-400 uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-rose-200 rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-rose-700 uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-rose-100">
+              <div className="p-1 bg-rose-50 text-rose-600 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+              </div>
               Confirmar Exclusão de Lojas
             </h3>
 
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-600">
               Tem certeza que deseja excluir permanentemente as <strong>{selectedCompanyIds.length}</strong> loja(s) selecionada(s) abaixo?
             </p>
 
-            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 max-h-36 overflow-y-auto space-y-1 text-xs">
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 max-h-36 overflow-y-auto space-y-1 text-xs">
               {companies.filter(c => selectedCompanyIds.includes(c.id)).map(c => (
-                <div key={c.id} className="text-slate-300 font-semibold flex items-center justify-between border-b border-slate-900/60 pb-1">
+                <div key={c.id} className="text-slate-800 font-semibold flex items-center justify-between border-b border-slate-200/60 pb-1">
                   <span>{c.nome}</span>
                   <span className="text-[10px] text-slate-500 font-mono">{c.email}</span>
                 </div>
               ))}
             </div>
 
-            <p className="text-[11px] text-red-400 font-semibold">
+            <p className="text-[11px] text-rose-600 font-semibold">
               ⚠️ Todos os dados das lojas (usuários, entregas, frotas, motoristas) serão removidos permanentemente do banco de dados e da API.
             </p>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setShowCompanyBatchDeleteModal(false)}
-                className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
@@ -2344,7 +2437,7 @@ export default function MasterPanel({
                     setFeedback({ type: 'error', message: res.error || 'Erro ao excluir empresas.' });
                   }
                 }}
-                className="px-5 py-2 bg-red-600 text-white font-bold text-xs rounded-xl hover:bg-red-500 transition-colors shadow-lg shadow-red-600/20"
+                className="px-5 py-2 bg-rose-600 text-white font-bold text-xs rounded-xl hover:bg-rose-700 transition-colors shadow-xs cursor-pointer"
               >
                 Excluir Definitivamente
               </button>
@@ -2355,14 +2448,16 @@ export default function MasterPanel({
 
       {/* MODAL: BATCH RESET COMPANY ADMIN PASSWORD */}
       {showCompanyBatchPasswordModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-800">
-              <Key className="w-4 h-4 text-amber-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-md p-6 space-y-4 shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
+            <h3 className="text-sm font-extrabold text-[#0F172A] uppercase tracking-wider flex items-center gap-2 pb-3 border-b border-slate-100">
+              <div className="p-1 bg-amber-500/10 text-amber-600 rounded-lg">
+                <Key className="w-4 h-4 text-amber-600" />
+              </div>
               Resetar Senha de Administradores
             </h3>
 
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-600">
               Defina a nova senha que será atribuída aos administradores das <strong>{selectedCompanyIds.length}</strong> loja(s) selecionada(s):
             </p>
 
@@ -2377,29 +2472,29 @@ export default function MasterPanel({
               setFeedback({ type: 'success', message: `Senha redefinida com sucesso para ${res.count} administrador(es).` });
             }} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Nova Senha Admin *</label>
+                <label className="block text-[#475569] font-bold mb-1">Nova Senha Admin *</label>
                 <input
                   type="password"
                   required
                   value={companyBatchPasswordValue}
                   onChange={(e) => setCompanyBatchPasswordValue(e.target.value)}
                   placeholder="Digite a nova senha para o(s) admin(s)"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 text-white rounded-xl text-xs focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 bg-white border border-[#CBD5E1] text-[#0F172A] font-medium rounded-[12px] min-h-[46px] focus:outline-none focus:border-[#F59E0B]"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setShowCompanyBatchPasswordModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-bold"
+                  className="px-4 py-2 bg-white text-[#334155] border border-[#CBD5E1] hover:bg-slate-50 rounded-xl font-bold transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400 transition-colors"
+                  className="px-5 py-2 bg-[#FF9800] text-[#111827] font-bold rounded-xl hover:bg-amber-500 transition-colors shadow-xs cursor-pointer"
                 >
                   Redefinir Senhas
                 </button>

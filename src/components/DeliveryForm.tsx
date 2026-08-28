@@ -4,7 +4,10 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Package, Users, Loader2, Calendar, Clock, AlertCircle } from 'lucide-react';
+import { 
+  Package, Users, Loader2, Calendar, Clock, AlertCircle, 
+  MapPin, Truck, Receipt, FileText, Sliders 
+} from 'lucide-react';
 import { 
   Empresa, DeliveryFormConfig, Entrega, Motorista, Usuario, 
   FormaPagamento, StatusPagamento, CustomFieldType, ClienteInfo, EnderecoInfo 
@@ -58,7 +61,7 @@ export default function DeliveryForm({
   onSubmit,
   onCancel,
   isSubmitting = false,
-  submitButtonText = 'Salvar Entrega',
+  submitButtonText = 'Cadastrar Entrega',
   isPreview = false,
   onNavigateToDrivers
 }: DeliveryFormProps) {
@@ -114,6 +117,14 @@ export default function DeliveryForm({
 
     return fields.sort((a, b) => a.order - b.order);
   }, [activeFormConfig]);
+
+  const isEnabled = (id: string) => sortedFormFields.some(f => f.id === id && f.enabled);
+  const isRequired = (id: string) => sortedFormFields.some(f => f.id === id && f.required);
+  const getLabel = (id: string, fallback: string) => sortedFormFields.find(f => f.id === id)?.label || fallback;
+
+  const customFields = useMemo(() => {
+    return sortedFormFields.filter((f): f is Extract<RenderableField, { kind: 'custom' }> => f.kind === 'custom');
+  }, [sortedFormFields]);
 
   // Form Field States
   const [numeroNF, setNumeroNF] = useState('');
@@ -303,423 +314,348 @@ export default function DeliveryForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Dynamic Ordered Fields */}
-      <div className="space-y-4 text-xs">
-        {sortedFormFields.map((field) => {
-          if (field.kind === 'standard') {
-            switch (field.id) {
-              case 'cliente':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <input
-                      type="text"
-                      disabled={isPreview}
-                      required={field.required}
-                      value={clientName}
-                      onChange={(e) => setClientName(e.target.value)}
-                      placeholder="Nome completo do comprador"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                    />
-                  </div>
-                );
-
-              case 'telefone':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        disabled={isPreview}
-                        required={field.required}
-                        value={clientPhone}
-                        onChange={(e) => setClientPhone(e.target.value)}
-                        placeholder="Telefone Celular (ex: 11 99999-9999)"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                      />
-                      <input
-                        type="text"
-                        disabled={isPreview}
-                        value={clientWhatsapp}
-                        onChange={(e) => setClientWhatsapp(e.target.value)}
-                        placeholder="WhatsApp (Opcional)"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                      />
-                    </div>
-                  </div>
-                );
-
-              case 'rua':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
-                      <div className="col-span-2 md:col-span-3">
-                        <input
-                          type="text"
-                          disabled={isPreview}
-                          required={field.required}
-                          value={rua}
-                          onChange={(e) => setRua(e.target.value)}
-                          placeholder="Logradouro / Avenida / Rua"
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                        />
-                      </div>
-                      <div>
-                        <input
-                          id="deliveryFormNumero"
-                          name="numero"
-                          type="text"
-                          disabled={isPreview}
-                          required={field.required}
-                          value={numero}
-                          onChange={(e) => setNumero(e.target.value)}
-                          placeholder="Número"
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-
-              case 'bairro':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <input
-                      type="text"
-                      disabled={isPreview}
-                      required={field.required}
-                      value={bairro}
-                      onChange={(e) => setBairro(e.target.value)}
-                      placeholder="Bairro"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                    />
-                  </div>
-                );
-
-              case 'cidade':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        disabled={isPreview}
-                        required={field.required}
-                        value={cidade}
-                        onChange={(e) => setCidade(e.target.value)}
-                        placeholder="Cidade"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                      />
-                      <input
-                        type="text"
-                        disabled={isPreview}
-                        value={complemento}
-                        onChange={(e) => setComplemento(e.target.value)}
-                        placeholder="Complemento / Apto / Bloco (Opcional)"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                      />
-                    </div>
-                  </div>
-                );
-
-              case 'cep':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    {isPreview ? (
-                      <div>
-                        <label className="block text-slate-300 font-semibold text-xs mb-1">
-                          {field.label} {field.required && <span className="text-amber-500">*</span>}
-                        </label>
-                        <input
-                          type="text"
-                          disabled
-                          placeholder="00000-000"
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs opacity-75"
-                        />
-                      </div>
-                    ) : (
-                      <CepInput
-                        label={field.label}
-                        required={field.required}
-                        value={cep}
-                        onChange={setCep}
-                        targetNumeroInputId="deliveryFormNumero"
-                        onAddressFound={(addr) => {
-                          if (addr.rua) setRua(addr.rua);
-                          if (addr.bairro) setBairro(addr.bairro);
-                          if (addr.cidade) setCidade(addr.cidade);
-                          if (addr.estado) setEstado(addr.estado);
-                          if (addr.complemento) setComplemento(addr.complemento);
-                        }}
-                      />
-                    )}
-                  </div>
-                );
-
-              case 'numeroPedido':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <input
-                      type="text"
-                      disabled={isPreview}
-                      required={field.required}
-                      value={numeroPedido}
-                      onChange={(e) => setNumeroPedido(e.target.value)}
-                      placeholder="Ex: PD-89542"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                    />
-                  </div>
-                );
-
-              case 'numeroNF':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <input
-                      type="text"
-                      disabled={isPreview}
-                      required={field.required}
-                      value={numeroNF}
-                      onChange={(e) => setNumeroNF(e.target.value)}
-                      placeholder="Ex: 001.245-A"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                    />
-                  </div>
-                );
-
-              case 'valorVenda':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        disabled={isPreview}
-                        required={field.required}
-                        value={valorVenda}
-                        onChange={(e) => setValorVenda(e.target.value)}
-                        placeholder="Valor R$ 150,00"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                      />
-                      <input
-                        type="text"
-                        disabled={isPreview}
-                        value={valorFrete}
-                        onChange={(e) => setValorFrete(e.target.value)}
-                        placeholder="Frete R$ (Opcional)"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                      />
-                    </div>
-                  </div>
-                );
-
-              case 'formaPagamento':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <select
-                        disabled={isPreview}
-                        value={formaPagamento}
-                        onChange={(e) => setFormaPagamento(e.target.value as FormaPagamento)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 cursor-pointer disabled:opacity-75"
-                      >
-                        <option value="ja_pago">Já Pago no Site/Loja</option>
-                        <option value="pix">PIX na entrega</option>
-                        <option value="dinheiro">Dinheiro na entrega</option>
-                        <option value="cartao_credito">Cartão de Crédito</option>
-                        <option value="cartao_debito">Cartão de Débito</option>
-                      </select>
-                      <select
-                        disabled={isPreview}
-                        value={statusPagamento}
-                        onChange={(e) => setStatusPagamento(e.target.value as StatusPagamento)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 cursor-pointer disabled:opacity-75"
-                      >
-                        <option value="pago">PAGO (Já liquidado)</option>
-                        <option value="receber_na_entrega">RECEBER NA ENTREGA</option>
-                      </select>
-                    </div>
-                  </div>
-                );
-
-              case 'volumes':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <input
-                      type="number"
-                      disabled={isPreview}
-                      required={field.required}
-                      min="1"
-                      value={volumes}
-                      onChange={(e) => setVolumes(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                    />
-                  </div>
-                );
-
-              case 'observacoes':
-                return (
-                  <div key={field.id} className="space-y-1">
-                    <label className="block text-slate-300 font-semibold text-xs">
-                      {field.label} {field.required && <span className="text-amber-500">*</span>}
-                    </label>
-                    <textarea
-                      rows={2}
-                      disabled={isPreview}
-                      required={field.required}
-                      value={observacoes}
-                      onChange={(e) => setObservacoes(e.target.value)}
-                      placeholder="Instruções para o entregador..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75 resize-none"
-                    />
-                  </div>
-                );
-
-              default:
-                return null;
-            }
-          } else {
-            return (
-              <div key={field.id} className="space-y-1">
-                <label className="block text-amber-400 font-semibold text-xs flex items-center gap-1">
-                  {field.label} {field.required && <span className="text-amber-500">*</span>}
-                </label>
-                {field.type === 'lista' ? (
-                  <select
-                    disabled={isPreview}
-                    value={customValues[field.id] || ''}
-                    onChange={(e) => setCustomValues({ ...customValues, [field.id]: e.target.value })}
-                    required={field.required}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 cursor-pointer disabled:opacity-75"
-                  >
-                    <option value="">Selecione...</option>
-                    {field.options?.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                ) : field.type === 'checkbox' ? (
-                  <label className="flex items-center gap-2 text-xs text-slate-300 font-bold cursor-pointer bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                    <input
-                      type="checkbox"
-                      disabled={isPreview}
-                      checked={!!customValues[field.id]}
-                      onChange={(e) => setCustomValues({ ...customValues, [field.id]: e.target.checked })}
-                      className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500 h-4 w-4 disabled:opacity-75"
-                    />
-                    {field.label}
-                  </label>
-                ) : (
-                  <input
-                    type={field.type === 'numero' ? 'number' : field.type === 'data' ? 'date' : 'text'}
-                    disabled={isPreview}
-                    value={customValues[field.id] || ''}
-                    onChange={(e) => setCustomValues({ ...customValues, [field.id]: e.target.value })}
-                    required={field.required}
-                    placeholder={field.placeholder || `Preencha ${field.label.toLowerCase()}`}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-                  />
-                )}
-              </div>
-            );
-          }
-        })}
-
-        {/* Operational / Dispatch Fields (System standard block) */}
-        <div className="space-y-4 pt-4 border-t border-slate-800/80">
-          <h4 className="font-bold text-amber-500 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
-            <Package className="w-3.5 h-3.5" />
-            Agendamento & Designação de Motorista
-          </h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-            <div>
-              <label className="block text-slate-400 mb-1 font-semibold text-xs flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-amber-500" />
-                Data Prevista *
-              </label>
-              <input
-                type="date"
-                disabled={isPreview}
-                required
-                value={dataEntregaPrevista}
-                onChange={(e) => setDataEntregaPrevista(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white font-bold text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-              />
-            </div>
-
-            <div className="flex flex-col justify-end pb-0.5">
-              <label className="flex items-center gap-2 text-xs text-slate-300 font-bold cursor-pointer bg-slate-900 p-2.5 rounded-lg border border-slate-800 hover:border-amber-500/50">
-                <input
-                  type="checkbox"
-                  disabled={isPreview}
-                  checked={isAgendada}
-                  onChange={(e) => setIsAgendada(e.target.checked)}
-                  className="rounded border-slate-700 bg-slate-950 text-amber-500 focus:ring-amber-500 h-4 w-4 disabled:opacity-75"
-                />
-                Entrega Agendada
-              </label>
-            </div>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {/* 📦 CARD 1: DADOS DO CLIENTE */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center shrink-0">
+            <Package className="w-4 h-4" />
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-400 mb-1 font-semibold text-xs">Prioridade</label>
-              <select
-                disabled={isPreview}
-                value={prioridade}
-                onChange={(e) => setPrioridade(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-700/80 hover:border-amber-500 rounded-lg p-2.5 text-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer text-xs disabled:opacity-75"
-              >
-                <option value="baixa" className="bg-slate-900 text-slate-300">Baixa</option>
-                <option value="media" className="bg-slate-900 text-white">Média</option>
-                <option value="alta" className="bg-slate-900 text-red-400">Alta / Urgente</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1 font-semibold text-xs flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-amber-500" />
-                Hora Estimada
-              </label>
-              <input
-                type="time"
-                disabled={isPreview}
-                value={horaEntregaPrevista}
-                onChange={(e) => setHoraEntregaPrevista(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-white text-xs focus:outline-none focus:border-amber-500 disabled:opacity-75"
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="block text-slate-400 mb-1 font-semibold text-xs flex items-center gap-1">
+            <h3 className="text-sm font-bold text-slate-900">Dados do Cliente</h3>
+            <p className="text-[11px] text-slate-500">Informações do comprador e identificadores do pedido</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Nome do Cliente */}
+          {isEnabled('cliente') && (
+            <div className="md:col-span-2 space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('cliente', 'Nome do Cliente')} {isRequired('cliente') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="text"
+                disabled={isPreview}
+                required={isRequired('cliente')}
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder="Nome completo do comprador"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+
+          {/* Telefone e Whatsapp */}
+          {isEnabled('telefone') && (
+            <>
+              <div className="space-y-1">
+                <label className="block text-slate-600 font-semibold text-xs">
+                  Telefone Celular {isRequired('telefone') && <span className="text-amber-500 font-bold">*</span>}
+                </label>
+                <input
+                  type="text"
+                  disabled={isPreview}
+                  required={isRequired('telefone')}
+                  value={clientPhone}
+                  onChange={(e) => setClientPhone(e.target.value)}
+                  placeholder="(ex: 11 99999-9999)"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-slate-600 font-semibold text-xs">
+                  WhatsApp (Opcional)
+                </label>
+                <input
+                  type="text"
+                  disabled={isPreview}
+                  value={clientWhatsapp}
+                  onChange={(e) => setClientWhatsapp(e.target.value)}
+                  placeholder="WhatsApp para notificações"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Documento (CPF/CNPJ) */}
+          <div className="space-y-1">
+            <label className="block text-slate-600 font-semibold text-xs">
+              CPF / CNPJ (Opcional)
+            </label>
+            <input
+              type="text"
+              disabled={isPreview}
+              value={clientDoc}
+              onChange={(e) => setClientDoc(e.target.value)}
+              placeholder="Documento do cliente"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+            />
+          </div>
+
+          {/* Nota Fiscal */}
+          {isEnabled('numeroNF') && (
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('numeroNF', 'Nota Fiscal / Identificador')} {isRequired('numeroNF') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="text"
+                disabled={isPreview}
+                required={isRequired('numeroNF')}
+                value={numeroNF}
+                onChange={(e) => setNumeroNF(e.target.value)}
+                placeholder="Ex: 001.245-A"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+
+          {/* Número do Pedido */}
+          {isEnabled('numeroPedido') && (
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('numeroPedido', 'Número do Pedido')} {isRequired('numeroPedido') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="text"
+                disabled={isPreview}
+                required={isRequired('numeroPedido')}
+                value={numeroPedido}
+                onChange={(e) => setNumeroPedido(e.target.value)}
+                placeholder="Ex: PD-89542"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 📍 CARD 2: ENDEREÇO DE ENTREGA */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center shrink-0">
+            <MapPin className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Endereço de Entrega</h3>
+            <p className="text-[11px] text-slate-500">Local de destino com preenchimento automático via CEP</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* CEP */}
+          {isEnabled('cep') && (
+            <div className="md:col-span-1 space-y-1">
+              {isPreview ? (
+                <div>
+                  <label className="block text-slate-600 font-semibold text-xs mb-1.5">
+                    {getLabel('cep', 'CEP')} {isRequired('cep') && <span className="text-amber-500 font-bold">*</span>}
+                  </label>
+                  <input
+                    type="text"
+                    disabled
+                    placeholder="00000-000"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 h-12 text-slate-900 text-xs font-semibold opacity-75"
+                  />
+                </div>
+              ) : (
+                <CepInput
+                  label={getLabel('cep', 'CEP')}
+                  required={isRequired('cep')}
+                  value={cep}
+                  onChange={setCep}
+                  targetNumeroInputId="deliveryFormNumero"
+                  onAddressFound={(addr) => {
+                    if (addr.rua) setRua(addr.rua);
+                    if (addr.bairro) setBairro(addr.bairro);
+                    if (addr.cidade) setCidade(addr.cidade);
+                    if (addr.estado) setEstado(addr.estado);
+                    if (addr.complemento) setComplemento(addr.complemento);
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Logradouro / Rua */}
+          {isEnabled('rua') && (
+            <div className="md:col-span-2 space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('rua', 'Endereço (Rua e Logradouro)')} {isRequired('rua') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="text"
+                disabled={isPreview}
+                required={isRequired('rua')}
+                value={rua}
+                onChange={(e) => setRua(e.target.value)}
+                placeholder="Logradouro / Avenida / Rua"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+
+          {/* Número */}
+          <div className="space-y-1">
+            <label className="block text-slate-600 font-semibold text-xs">
+              Número <span className="text-amber-500 font-bold">*</span>
+            </label>
+            <input
+              id="deliveryFormNumero"
+              name="numero"
+              type="text"
+              disabled={isPreview}
+              required
+              value={numero}
+              onChange={(e) => setNumero(e.target.value)}
+              placeholder="Nº (Ex: 123)"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+            />
+          </div>
+
+          {/* Bairro */}
+          {isEnabled('bairro') && (
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('bairro', 'Bairro')} {isRequired('bairro') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="text"
+                disabled={isPreview}
+                required={isRequired('bairro')}
+                value={bairro}
+                onChange={(e) => setBairro(e.target.value)}
+                placeholder="Bairro"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+
+          {/* Cidade */}
+          {isEnabled('cidade') && (
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('cidade', 'Cidade')} {isRequired('cidade') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="text"
+                disabled={isPreview}
+                required={isRequired('cidade')}
+                value={cidade}
+                onChange={(e) => setCidade(e.target.value)}
+                placeholder="Cidade"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+
+          {/* Estado & Complemento */}
+          <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">Estado (UF)</label>
+              <input
+                type="text"
+                disabled={isPreview}
+                value={estado}
+                onChange={(e) => setEstado(e.target.value.toUpperCase())}
+                placeholder="SP"
+                maxLength={2}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm uppercase transition-all"
+              />
+            </div>
+            <div className="md:col-span-2 space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">Complemento (Opcional)</label>
+              <input
+                type="text"
+                disabled={isPreview}
+                value={complemento}
+                onChange={(e) => setComplemento(e.target.value)}
+                placeholder="Apto, Bloco, Referência..."
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 🚚 CARD 3: ENTREGA & AGENDAMENTO */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center shrink-0">
+            <Truck className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Entrega & Agendamento</h3>
+            <p className="text-[11px] text-slate-500">Prazos de entrega, prioridade e designação de entregador</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Data Prevista */}
+          <div className="space-y-1">
+            <label className="block text-slate-600 font-semibold text-xs flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-amber-500" />
+              Data Prevista <span className="text-amber-500 font-bold">*</span>
+            </label>
+            <input
+              type="date"
+              disabled={isPreview}
+              required
+              value={dataEntregaPrevista}
+              onChange={(e) => setDataEntregaPrevista(e.target.value)}
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+            />
+          </div>
+
+          {/* Hora Estimada */}
+          <div className="space-y-1">
+            <label className="block text-slate-600 font-semibold text-xs flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-500" />
+              Hora Estimada (Opcional)
+            </label>
+            <input
+              type="time"
+              disabled={isPreview}
+              value={horaEntregaPrevista}
+              onChange={(e) => setHoraEntregaPrevista(e.target.value)}
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+            />
+          </div>
+
+          {/* Prioridade */}
+          <div className="space-y-1">
+            <label className="block text-slate-600 font-semibold text-xs">Prioridade</label>
+            <select
+              disabled={isPreview}
+              value={prioridade}
+              onChange={(e) => setPrioridade(e.target.value as any)}
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none cursor-pointer disabled:opacity-75 text-xs sm:text-sm transition-all"
+            >
+              <option value="baixa">Baixa</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta / Urgente</option>
+            </select>
+          </div>
+
+          {/* Checkbox Agendada */}
+          <div className="flex flex-col justify-end">
+            <label className="flex items-center gap-2.5 text-xs text-slate-800 font-bold cursor-pointer bg-slate-50 hover:bg-amber-50/50 p-3 rounded-xl border border-slate-300 hover:border-amber-500 transition-all h-12">
+              <input
+                type="checkbox"
+                disabled={isPreview}
+                checked={isAgendada}
+                onChange={(e) => setIsAgendada(e.target.checked)}
+                className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 h-4 w-4 disabled:opacity-75 cursor-pointer"
+              />
+              <span>Entrega Agendada</span>
+            </label>
+          </div>
+
+          {/* Escalar Motorista */}
+          <div className="md:col-span-2 space-y-1">
+            <label className="block text-slate-600 font-semibold text-xs flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-amber-500" />
               Escalar Motorista / Entregador
             </label>
@@ -727,7 +663,7 @@ export default function DeliveryForm({
               disabled={isPreview}
               value={motoristaId}
               onChange={(e) => setMotoristaId(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-amber-400 font-bold focus:outline-none focus:border-amber-500 cursor-pointer text-xs disabled:opacity-75"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-amber-700 font-extrabold focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none cursor-pointer disabled:opacity-75 text-xs sm:text-sm transition-all"
             >
               <option value="">Não designar motorista agora</option>
               {availableDrivers.map(drv => (
@@ -735,12 +671,12 @@ export default function DeliveryForm({
               ))}
             </select>
             {!isPreview && availableDrivers.length === 0 && onNavigateToDrivers && (
-              <div className="flex items-center justify-between gap-2 mt-2 p-2 bg-amber-950/30 border border-amber-800/40 rounded-lg text-amber-400 text-xs">
-                <span>⚠️ Nenhum entregador cadastrado.</span>
+              <div className="flex items-center justify-between gap-2 mt-2 p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl text-amber-900 text-xs font-medium">
+                <span className="flex items-center gap-1.5"><AlertCircle className="w-4 h-4 text-amber-600 shrink-0" /> Nenhum entregador cadastrado.</span>
                 <button
                   type="button"
                   onClick={onNavigateToDrivers}
-                  className="underline font-bold hover:text-white"
+                  className="underline font-bold text-amber-900 hover:text-amber-600"
                 >
                   + Cadastrar Entregador
                 </button>
@@ -750,29 +686,218 @@ export default function DeliveryForm({
         </div>
       </div>
 
+      {/* 💰 CARD 4: FINANCEIRO & VOLUMES */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center shrink-0">
+            <Receipt className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Financeiro & Volumes</h3>
+            <p className="text-[11px] text-slate-500">Valores, pagamento e quantidade de volumes</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Valor Venda */}
+          {isEnabled('valorVenda') && (
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('valorVenda', 'Valor da Venda')} {isRequired('valorVenda') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="text"
+                disabled={isPreview}
+                required={isRequired('valorVenda')}
+                value={valorVenda}
+                onChange={(e) => setValorVenda(e.target.value)}
+                placeholder="R$ 0,00"
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+
+          {/* Valor Frete */}
+          <div className="space-y-1">
+            <label className="block text-slate-600 font-semibold text-xs">Valor do Frete (Opcional)</label>
+            <input
+              type="text"
+              disabled={isPreview}
+              value={valorFrete}
+              onChange={(e) => setValorFrete(e.target.value)}
+              placeholder="R$ 0,00"
+              className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+            />
+          </div>
+
+          {/* Forma de Pagamento */}
+          {isEnabled('formaPagamento') && (
+            <>
+              <div className="space-y-1">
+                <label className="block text-slate-600 font-semibold text-xs">
+                  Forma de Pagamento {isRequired('formaPagamento') && <span className="text-amber-500 font-bold">*</span>}
+                </label>
+                <select
+                  disabled={isPreview}
+                  value={formaPagamento}
+                  onChange={(e) => setFormaPagamento(e.target.value as FormaPagamento)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none cursor-pointer disabled:opacity-75 text-xs sm:text-sm transition-all"
+                >
+                  <option value="ja_pago">Já Pago no Site/Loja</option>
+                  <option value="pix">PIX na entrega</option>
+                  <option value="dinheiro">Dinheiro na entrega</option>
+                  <option value="cartao_credito">Cartão de Crédito</option>
+                  <option value="cartao_debito">Cartão de Débito</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-slate-600 font-semibold text-xs">Status do Pagamento</label>
+                <select
+                  disabled={isPreview}
+                  value={statusPagamento}
+                  onChange={(e) => setStatusPagamento(e.target.value as StatusPagamento)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none cursor-pointer disabled:opacity-75 text-xs sm:text-sm transition-all"
+                >
+                  <option value="pago">PAGO (Já liquidado)</option>
+                  <option value="receber_na_entrega">RECEBER NA ENTREGA</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {/* Volumes */}
+          {isEnabled('volumes') && (
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('volumes', 'Volumes / Pacotes')} {isRequired('volumes') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <input
+                type="number"
+                disabled={isPreview}
+                required={isRequired('volumes')}
+                min="1"
+                value={volumes}
+                onChange={(e) => setVolumes(Number(e.target.value))}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 📝 CARD 5: OBSERVAÇÕES & OUTROS CAMPOS */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-2xs">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-600 flex items-center justify-center shrink-0">
+            <FileText className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Observações & Instruções</h3>
+            <p className="text-[11px] text-slate-500">Observações de entrega e campos personalizados</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Observações */}
+          {isEnabled('observacoes') && (
+            <div className="space-y-1">
+              <label className="block text-slate-600 font-semibold text-xs">
+                {getLabel('observacoes', 'Observações / Instruções para o Entregador')} {isRequired('observacoes') && <span className="text-amber-500 font-bold">*</span>}
+              </label>
+              <textarea
+                rows={3}
+                disabled={isPreview}
+                required={isRequired('observacoes')}
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                placeholder="Digite orientações ou pontos de referência para o entregador..."
+                className="w-full bg-white border border-slate-300 rounded-xl p-3 text-slate-900 font-medium placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all resize-none min-h-[88px]"
+              />
+            </div>
+          )}
+
+          {/* Custom Fields */}
+          {customFields.length > 0 && (
+            <div className="pt-2 border-t border-slate-100 space-y-3">
+              <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-amber-500" />
+                Campos Personalizados
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {customFields.map((field) => (
+                  <div key={field.id} className="space-y-1">
+                    <label className="block text-slate-600 font-semibold text-xs">
+                      {field.label} {field.required && <span className="text-amber-500 font-bold">*</span>}
+                    </label>
+                    {field.type === 'lista' ? (
+                      <select
+                        disabled={isPreview}
+                        value={customValues[field.id] || ''}
+                        onChange={(e) => setCustomValues({ ...customValues, [field.id]: e.target.value })}
+                        required={field.required}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none cursor-pointer disabled:opacity-75 text-xs sm:text-sm transition-all"
+                      >
+                        <option value="">Selecione...</option>
+                        {field.options?.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    ) : field.type === 'checkbox' ? (
+                      <label className="flex items-center gap-2.5 text-xs text-slate-800 font-bold cursor-pointer bg-slate-50 hover:bg-amber-50/50 p-3 rounded-xl border border-slate-300 hover:border-amber-500 transition-all h-12">
+                        <input
+                          type="checkbox"
+                          disabled={isPreview}
+                          checked={!!customValues[field.id]}
+                          onChange={(e) => setCustomValues({ ...customValues, [field.id]: e.target.checked })}
+                          className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 h-4 w-4 disabled:opacity-75 cursor-pointer"
+                        />
+                        <span>{field.label}</span>
+                      </label>
+                    ) : (
+                      <input
+                        type={field.type === 'numero' ? 'number' : field.type === 'data' ? 'date' : 'text'}
+                        disabled={isPreview}
+                        value={customValues[field.id] || ''}
+                        onChange={(e) => setCustomValues({ ...customValues, [field.id]: e.target.value })}
+                        required={field.required}
+                        placeholder={field.placeholder || `Preencha ${field.label.toLowerCase()}`}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-75 text-xs sm:text-sm transition-all"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {!isPreview && (
-        <div className="border-t border-slate-800 pt-4 flex justify-end gap-2">
+        <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200">
           {onCancel && (
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-2 bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs font-bold transition-colors"
+              className="px-5 h-12 bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-2xs cursor-pointer"
             >
-              Voltar / Cancelar
+              Cancelar
             </button>
           )}
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-4 py-2 bg-amber-500 text-slate-950 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-amber-500/10"
+            className="px-6 h-12 bg-[#F59E0B] text-slate-950 hover:bg-amber-600 font-extrabold disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
           >
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Gravando...
+                Salvando...
               </>
             ) : (
-              submitButtonText
+              submitButtonText || 'Cadastrar Entrega'
             )}
           </button>
         </div>

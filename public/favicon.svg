@@ -1,35 +1,56 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 360" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <linearGradient id="gBlueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="blueBadgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#00A3FF" />
-      <stop offset="100%" stop-color="#0066FF" />
+      <stop offset="45%" stop-color="#0066FF" />
+      <stop offset="100%" stop-color="#0040E6" />
+    </linearGradient>
+    <linearGradient id="truckBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#F1F5F9" />
     </linearGradient>
   </defs>
 
-  <g id="official-emblem" transform="translate(10, -10)">
+  <!-- BLUE SQUIRCLE BADGE BACKGROUND -->
+  <rect width="512" height="512" rx="115" fill="url(#blueBadgeGrad)" />
+
+  <!-- SUBTLE GROUND SHADOW BELOW TRUCK -->
+  <ellipse cx="256" cy="405" rx="120" ry="8" fill="#0038C8" opacity="0.35" />
+
+  <!-- TRUCK & SPEED LINES GROUP -->
+  <g id="fast-delivery-truck" transform="translate(10, 15)">
     <!-- SPEED LINES LEFT -->
-    <rect x="70" y="120" width="80" height="12" rx="6" fill="#00C8FF" />
-    <rect x="95" y="145" width="60" height="10" rx="5" fill="#38BDF8" opacity="0.95" />
-    <rect x="50" y="170" width="110" height="14" rx="7" fill="#0080FF" />
-    <rect x="105" y="195" width="50" height="10" rx="5" fill="#00C8FF" />
-    <rect x="75" y="218" width="70" height="12" rx="6" fill="#7DD3FC" opacity="0.8" />
+    <rect x="145" y="195" width="75" height="18" rx="9" fill="#FFFFFF" />
+    <rect x="180" y="230" width="40" height="16" rx="8" fill="#FFFFFF" />
+    <rect x="90" y="265" width="130" height="22" rx="11" fill="#FFFFFF" />
+    <rect x="140" y="308" width="80" height="16" rx="8" fill="#FFFFFF" />
+    <rect x="110" y="344" width="110" height="18" rx="9" fill="#FFFFFF" />
+    <circle cx="102" cy="316" r="8" fill="#FFFFFF" />
 
-    <!-- STYLIZED F OUTLINE/SHAPE -->
-    <path d="M190 80 L330 80 L310 135 L245 135 L235 180 L295 180 L280 230 L220 230 L180 350 L125 350 Z" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.5" />
+    <!-- TRUCK CARGO BOX -->
+    <path d="M 205 180 C 195 180 190 188 190 200 L 190 325 C 190 335 198 340 210 340 L 310 340 L 310 200 C 310 188 302 180 290 180 Z" fill="url(#truckBodyGrad)" />
 
-    <!-- STYLIZED G CURVE -->
-    <path d="M335 145 C270 145 220 190 220 260 C220 330 270 370 345 370 L350 370 C410 370 440 340 440 280 L320 280 L320 230 L445 230 C448 250 450 270 450 290 C450 370 390 425 320 425 C230 425 165 360 165 260 C165 160 240 90 345 90 C385 90 425 105 450 130 L410 175 C390 155 365 145 335 145 Z" fill="url(#gBlueGrad)" />
+    <!-- TRUCK CABIN FRONT -->
+    <path d="M 305 200 L 345 200 C 360 200 375 220 385 245 L 398 285 C 402 298 402 320 395 330 C 390 338 380 340 370 340 L 305 340 Z" fill="url(#truckBodyGrad)" />
 
-    <!-- INTEGRATED DELIVERY TRUCK WITH SPEED LINES -->
-    <g transform="translate(325, 230) scale(0.85)">
-      <line x1="-22" y1="18" x2="-6" y2="18" stroke="#00C8FF" stroke-width="4" stroke-linecap="round" />
-      <line x1="-16" y1="28" x2="-6" y2="28" stroke="#00C8FF" stroke-width="4" stroke-linecap="round" />
-      <line x1="-28" y1="38" x2="-6" y2="38" stroke="#00C8FF" stroke-width="4" stroke-linecap="round" />
+    <!-- CABIN WINDSHIELD WINDOW -->
+    <path d="M 320 218 L 345 218 C 352 218 360 230 365 245 L 372 272 C 374 278 370 282 362 282 L 320 282 C 316 282 314 278 314 272 L 314 226 C 314 220 316 218 320 218 Z" fill="#0066FF" />
 
-      <path d="M0 10 L30 10 L45 28 L60 28 L60 48 L0 48 Z" fill="#0066FF" />
-      <circle cx="15" cy="48" r="7" fill="#FFFFFF" stroke="#0066FF" stroke-width="2.5" />
-      <circle cx="45" cy="48" r="7" fill="#FFFFFF" stroke="#0066FF" stroke-width="2.5" />
-      <path d="M32 15 L42 28 L32 28 Z" fill="#FFFFFF" />
+    <!-- CABIN DOOR HANDLE -->
+    <rect x="330" y="295" width="14" height="6" rx="3" fill="#0066FF" />
+
+    <!-- WHEEL 1 (LEFT) -->
+    <g transform="translate(208, 332)">
+      <circle cx="28" cy="28" r="28" fill="#FFFFFF" />
+      <circle cx="28" cy="28" r="17" fill="#0066FF" />
+      <circle cx="28" cy="28" r="7" fill="#FFFFFF" />
+    </g>
+
+    <!-- WHEEL 2 (RIGHT) -->
+    <g transform="translate(322, 332)">
+      <circle cx="28" cy="28" r="28" fill="#FFFFFF" />
+      <circle cx="28" cy="28" r="17" fill="#0066FF" />
+      <circle cx="28" cy="28" r="7" fill="#FFFFFF" />
     </g>
   </g>
 </svg>

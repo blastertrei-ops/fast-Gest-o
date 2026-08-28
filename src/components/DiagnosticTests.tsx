@@ -357,21 +357,21 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto select-none">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto select-none" style={{ backgroundColor: 'rgba(15, 23, 42, 0.42)', backdropFilter: 'blur(3px)' }}>
+      <div className="bg-white border border-[#E2E8F0] rounded-[18px] w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-[0_20px_50px_rgba(15,23,42,0.16)] text-[#0F172A]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 p-4 md:p-5">
+        <div className="flex items-center justify-between border-b border-slate-200 p-4 md:p-5">
           <div>
-            <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-2">
-              <RefreshCw className={`w-5 h-5 text-amber-500 ${isRunning ? 'animate-spin' : ''}`} />
+            <h3 className="text-sm md:text-base font-bold text-[#0F172A] flex items-center gap-2">
+              <RefreshCw className={`w-5 h-5 text-amber-600 ${isRunning ? 'animate-spin' : ''}`} />
               Auditoria Automática de Consistência
             </h3>
-            <p className="text-[10px] md:text-xs text-slate-400 mt-1">Garante o fluxo sem erros e valida as regras de integridade referencial por ID.</p>
+            <p className="text-[10px] md:text-xs text-slate-500 font-medium mt-1">Garante o fluxo sem erros e valida as regras de integridade referencial por ID.</p>
           </div>
           <button 
             onClick={onClose} 
             disabled={isRunning}
-            className="text-slate-400 hover:text-white text-xs bg-slate-800 px-3 py-1.5 rounded-xl transition-colors disabled:opacity-50"
+            className="text-slate-500 hover:text-slate-800 text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl transition-colors font-bold disabled:opacity-50 cursor-pointer"
           >
             Fechar
           </button>
@@ -381,15 +381,15 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
         <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
           
           {/* Action Trigger Box */}
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="bg-[#F8FAFC] p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider">Executar Suite de Testes Completa</h4>
-              <p className="text-[11px] text-slate-400 mt-1">Isso criará uma empresa fictícia, cadastrará Mateus, designará entregas e rodará as transições simulando ambos os painéis.</p>
+              <h4 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">Executar Suite de Testes Completa</h4>
+              <p className="text-[11px] text-slate-500 font-medium mt-1">Isso criará uma empresa fictícia, cadastrará Mateus, designará entregas e rodará as transições simulando ambos os painéis.</p>
             </div>
             <button
               onClick={runAllTests}
               disabled={isRunning}
-              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 text-slate-950 disabled:text-slate-500 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shrink-0 transition-all shadow-lg shadow-amber-500/10"
+              className="px-5 py-2.5 bg-[#FF9800] text-[#111827] hover:bg-[#f59e0b] disabled:bg-slate-200 disabled:text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shrink-0 transition-all shadow-xs cursor-pointer"
             >
               {isRunning ? (
                 <>
@@ -398,7 +398,7 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
                 </>
               ) : (
                 <>
-                  <Play className="w-4 h-4 fill-slate-950" />
+                  <Play className="w-4 h-4 fill-[#111827]" />
                   Iniciar Auditoria
                 </>
               )}
@@ -409,19 +409,19 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
           {testResult && (
             <div className={`p-4 rounded-xl border flex items-start gap-3 ${
               testResult === 'success' 
-                ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-200' 
-                : 'bg-red-950/40 border-red-800/60 text-red-200'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                : 'bg-rose-50 border-rose-200 text-rose-900'
             }`}>
               {testResult === 'success' ? (
-                <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
               ) : (
-                <XCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               )}
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider">
                   {testResult === 'success' ? 'SISTEMA AUDITADO COM SUCESSO' : 'SISTEMA ENCONTROU FALHA DE CONSISTÊNCIA'}
                 </h4>
-                <p className="text-[11px] text-slate-300 mt-1">
+                <p className="text-[11px] text-slate-600 mt-1 font-medium">
                   {testResult === 'success' 
                     ? 'A auditoria garante que a criação de usuários, criação de entregas vinculadas por ID único de login, login do entregador e atualizações bidirecionais estão 100% perfeitas e funcionais!'
                     : 'Corrija os erros listados nos logs antes de liberar em ambiente de produção.'}
@@ -432,34 +432,34 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
 
           {/* Test Steps List */}
           <div className="space-y-3">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Etapas do Protocolo de Teste</h4>
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Etapas do Protocolo de Teste</h4>
             <div className="space-y-2.5">
               {steps.map(step => (
-                <div key={step.id} className="bg-slate-950/40 border border-slate-850 p-3 rounded-xl flex items-start gap-3">
+                <div key={step.id} className="bg-[#F8FAFC] border border-slate-200 p-3 rounded-xl flex items-start gap-3">
                   <div className="shrink-0 mt-0.5">
                     {step.status === 'idle' && (
-                      <div className="w-5 h-5 rounded-full border-2 border-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                      <div className="w-5 h-5 rounded-full border-2 border-slate-300 flex items-center justify-center text-[10px] font-bold text-slate-500">
                         {step.id}
                       </div>
                     )}
                     {step.status === 'running' && (
-                      <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
+                      <Loader2 className="w-5 h-5 text-amber-600 animate-spin" />
                     )}
                     {step.status === 'success' && (
-                      <CheckCircle className="w-5 h-5 text-emerald-500" />
+                      <CheckCircle className="w-5 h-5 text-emerald-600" />
                     )}
                     {step.status === 'failed' && (
-                      <XCircle className="w-5 h-5 text-red-500" />
+                      <XCircle className="w-5 h-5 text-rose-600" />
                     )}
                   </div>
                   <div className="flex-1">
                     <h5 className={`text-xs font-bold ${
-                      step.status === 'success' ? 'text-emerald-400' :
-                      step.status === 'failed' ? 'text-red-400' : 'text-slate-200'
+                      step.status === 'success' ? 'text-emerald-700' :
+                      step.status === 'failed' ? 'text-rose-700' : 'text-[#0F172A]'
                     }`}>{step.name}</h5>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{step.description}</p>
+                    <p className="text-[11px] text-slate-500 font-medium mt-0.5">{step.description}</p>
                     {step.errorDetails && (
-                      <div className="mt-2 p-2 bg-red-950/60 border border-red-900 rounded-lg text-[10px] text-red-300 font-mono">
+                      <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 font-mono">
                         Erro: {step.errorDetails}
                       </div>
                     )}
@@ -471,10 +471,10 @@ export const DiagnosticTestsModal: React.FC<DiagnosticTestsModalProps> = ({ onCl
 
           {/* Logs Output Trace Box */}
           <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Logs de Auditoria Detalhados</h4>
-            <div className="bg-slate-950 border border-slate-850 rounded-xl p-4 h-48 overflow-y-auto font-mono text-[10px] leading-relaxed text-slate-300 space-y-1 select-text">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Logs de Auditoria Detalhados</h4>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 h-48 overflow-y-auto font-mono text-[10px] leading-relaxed text-slate-300 space-y-1 select-text">
               {logs.length === 0 ? (
-                <div className="text-slate-600 text-center py-16">Nenhum teste executado ainda. Clique em "Iniciar Auditoria".</div>
+                <div className="text-slate-500 text-center py-16 font-medium">Nenhum teste executado ainda. Clique em "Iniciar Auditoria".</div>
               ) : (
                 logs.map((log, index) => (
                   <div key={index} className={

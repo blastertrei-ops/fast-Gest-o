@@ -109,15 +109,15 @@ export default function CepInput({
   };
 
   return (
-    <div className={`space-y-1 ${className}`}>
+    <div className={`space-y-1.5 ${className}`}>
       {label && (
-        <label className="block text-slate-400 mb-1 font-semibold text-xs">
-          <span>{label} {required && <span className="text-amber-500">*</span>}</span>
+        <label className="block text-slate-600 font-semibold text-xs">
+          <span>{label} {required && <span className="text-amber-500 font-bold">*</span>}</span>
         </label>
       )}
 
       <div className="relative flex items-center">
-        <div className="absolute left-3 pointer-events-none text-slate-400">
+        <div className="absolute left-3.5 pointer-events-none text-slate-400">
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
           ) : (
@@ -134,20 +134,20 @@ export default function CepInput({
           required={required}
           disabled={disabled || loading}
           maxLength={9}
-          className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-white font-mono focus:outline-none focus:border-amber-500 disabled:opacity-60 text-xs"
+          className="w-full bg-white border border-slate-300 rounded-xl pl-10 pr-3.5 h-12 text-slate-900 font-semibold placeholder:text-slate-400 hover:border-amber-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15 focus:outline-none disabled:opacity-60 text-xs sm:text-sm transition-all"
         />
       </div>
 
       {/* FEEDBACK STATUS MESSAGE */}
       {message && (
         <div className={`text-[11px] font-medium flex items-center gap-1 mt-1 transition-all ${
-          status === 'loading' ? 'text-amber-400' :
-          status === 'success' ? 'text-emerald-400 font-semibold' :
-          'text-red-400'
+          status === 'loading' ? 'text-amber-600' :
+          status === 'success' ? 'text-emerald-600 font-semibold' :
+          'text-red-500'
         }`}>
           {status === 'loading' && <Loader2 className="w-3 h-3 animate-spin" />}
-          {status === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
-          {status === 'error' && <AlertCircle className="w-3 h-3 text-red-400" />}
+          {status === 'success' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+          {status === 'error' && <AlertCircle className="w-3 h-3 text-red-500" />}
           <span>{message}</span>
         </div>
       )}

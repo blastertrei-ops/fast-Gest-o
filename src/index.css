@@ -1,10 +1,189 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --bg-main: #F5F7FA;
+  --bg-card: #FFFFFF;
+  --bg-sidebar: #132238;
+  --color-primary: #F59E0B;
+  --color-secondary: #2563EB;
+  --text-main: #1F2937;
+  --text-muted: #6B7280;
+  --border-color: #E5E7EB;
+
+  /* Global Spacing Tokens (Sprint 18.9) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+}
+
+/* Global Container Specification */
+.page-content {
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: var(--space-8);
+}
+
+@media (max-width: 1366px) {
+  .page-content {
+    padding: var(--space-6);
+  }
+}
+
+@media (max-width: 768px) {
+  .page-content {
+    padding: var(--space-4);
+  }
+}
+
+/* KPI Responsive Grid */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(170px, 1fr));
+  gap: var(--space-5);
+}
+
+@media (max-width: 1400px) {
+  .kpi-grid {
+    grid-template-columns: repeat(3, minmax(210px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kpi-card {
+  min-height: 150px;
+  padding: 22px;
+  border-radius: 18px;
+  background-color: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.kpi-title {
+  line-height: 1.35;
+  max-width: calc(100% - 38px);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748B;
+}
+
+.kpi-value {
+  margin-top: 18px;
+  font-size: 32px;
+  line-height: 1;
+  font-weight: 900;
+  color: #0F172A;
+}
+
+.kpi-description {
+  margin-top: 16px;
+  line-height: 1.45;
+  font-size: 12px;
+  color: #64748B;
+}
+
+/* Financial Grid */
+.financial-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background-color: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 18px;
+}
+
+@media (max-width: 900px) {
+  .financial-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .financial-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Filters Grid */
+.filters-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(240px, 2fr) auto;
+  gap: var(--space-4);
+  align-items: end;
+}
+
+@media (max-width: 1200px) {
+  .filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filters-search {
+    grid-column: 1 / -1;
+  }
+
+  .new-delivery-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .filters-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filters-search,
+  .new-delivery-button {
+    grid-column: auto;
+  }
+}
+
+/* Form Builder Grid */
+.form-builder-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(360px, 0.8fr);
+  gap: var(--space-6);
+}
+
+@media (max-width: 1100px) {
+  .form-builder-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Custom scrollbars for dashboard views */
@@ -22,3 +201,4 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(156, 163, 175, 0.5);
 }
+
