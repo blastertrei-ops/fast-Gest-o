@@ -7,6 +7,7 @@ import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { collection, deleteDoc, doc, firestoreDb, getDoc, getDocs, query, setDoc, updateDoc, where } from './server/firebase';
 import { authenticateToken, hashPassword, JWT_SECRET, loginRateLimit, sanitizeForFirestore, verifyAndMigratePassword } from './server/auth';
+import { canAssignRole, canonicalRole, hasPermission, withoutTenantFields } from './server/security-policy';
 
 dotenv.config();
 
@@ -138,38 +139,6 @@ interface ApiDelivery {
   historico: any[];
 }
 
-const roleAliases: Record<string, string> = { entregador: 'motorista', driver: 'motorista' };
-const rolePermissions: Record<string, ReadonlySet<string>> = {
-  master: new Set(['*']),
-  admin: new Set([
-    'company:read', 'deliveries:read', 'deliveries:write', 'deliveries:delete',
-    'drivers:read', 'drivers:write', 'vehicles:read', 'vehicles:write',
-    'users:read', 'users:write', 'clients:read', 'clients:write', 'clients:delete',
-    'audit:read', 'storage:read', 'locations:read', 'locations:write', 'routes:read', 'routes:write'
-  ]),
-  operador: new Set([
-    'company:read', 'deliveries:read', 'deliveries:write', 'drivers:read',
-    'vehicles:read', 'clients:read', 'clients:write', 'locations:read', 'routes:read'
-  ]),
-  motorista: new Set(['company:read', 'deliveries:read', 'deliveries:own-write', 'locations:write', 'routes:write'])
-};
-
-function canonicalRole(role: string): string {
-  return roleAliases[role] || role;
-}
-
-function hasPermission(role: string, permission: string): boolean {
-  const permissions = rolePermissions[canonicalRole(role)];
-  return Boolean(permissions?.has('*') || permissions?.has(permission));
-}
-
-function canAssignRole(actorRole: string, targetRole: string): boolean {
-  const actor = canonicalRole(actorRole);
-  const target = canonicalRole(targetRole);
-  if (actor === 'master') return ['master', 'admin', 'operador', 'motorista'].includes(target);
-  return actor === 'admin' && ['admin', 'operador', 'motorista'].includes(target);
-}
-
 function requirePermission(permission: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user || !hasPermission(req.user.role, permission)) {
@@ -209,11 +178,6 @@ async function hasDocumentCompanyAccess(req: Request, res: Response, collectionN
     return false;
   }
   return true;
-}
-
-const tenantFields = new Set(['companyId', 'organizationId', 'tenantId']);
-function withoutTenantFields(data: any): any {
-  return Object.fromEntries(Object.entries(data).filter(([key]) => !tenantFields.has(key)));
 }
 
 async function belongsToCompany(collectionName: string, id: string, companyId: string): Promise<boolean> {
