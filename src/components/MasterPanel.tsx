@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Database } from '../lib/db';
 import CepInput from './CepInput';
 import BrandLogo from './BrandLogo';
+import { CompanyStatusBadge } from './masterPanel/CompanyStatusBadge';
+import { DEFAULT_LIMITS, DEFAULT_PERMISSIONS, formatCurrency, formatDate } from './masterPanel/helpers';
 import { 
   Empresa, Usuario, MasterAuditLog, PerfilPermissoes, CompanyStatus, PlanoTipo, CompanyLimits, GranularPermissions, UserRole 
 } from '../types';
@@ -24,35 +26,6 @@ interface MasterPanelProps {
   onEnterSupportMode: (company: Empresa) => void;
   onLogout: () => void;
 }
-
-const DEFAULT_LIMITS: CompanyLimits = {
-  maxClientes: 1000,
-  maxEntregasMes: 5000,
-  maxUsuarios: 20,
-  maxEntregadores: 10,
-  maxOperadores: 10,
-  maxArmazenamentoMB: 5000
-};
-
-const DEFAULT_PERMISSIONS: GranularPermissions = {
-  criar_clientes: true,
-  editar_clientes: true,
-  excluir_clientes: false,
-  criar_entregas: true,
-  editar_entregas: true,
-  excluir_entregas: false,
-  alterar_status_entregas: true,
-  criar_usuarios: false,
-  excluir_usuarios: false,
-  ver_relatorios: true,
-  exportar_dados: true,
-  configuracoes_empresa: false,
-  dashboard: true,
-  financeiro: false,
-  logs: false,
-  backup: false,
-  ia: true
-};
 
 export default function MasterPanel({
   currentUser,
@@ -163,22 +136,6 @@ export default function MasterPanel({
     companyId: 'global',
     permissoes: { ...DEFAULT_PERMISSIONS }
   });
-
-  // Formatting helpers
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
-  };
-
-  const formatDate = (isoStr?: string) => {
-    if (!isoStr) return 'N/A';
-    try {
-      const d = new Date(isoStr);
-      if (isNaN(d.getTime())) return isoStr;
-      return d.toLocaleDateString('pt-BR');
-    } catch {
-      return isoStr;
-    }
-  };
 
   // Filtered companies
   const filteredCompanies = companies.filter(c => {
@@ -530,13 +487,7 @@ export default function MasterPanel({
                         <h4 className="text-xs font-bold text-slate-900">{comp.nome}</h4>
                         <p className="text-[11px] text-slate-500">{comp.nomeFantasia || comp.cnpj || 'Sem CNPJ'}</p>
                       </div>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border ${
-                        comp.status === 'ativa' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        comp.status === 'suspensa' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                        'bg-rose-50 text-rose-700 border-rose-200'
-                      }`}>
-                        {comp.status}
-                      </span>
+                      <CompanyStatusBadge status={comp.status} />
                     </div>
 
                     <div className="text-[11px] text-slate-600 space-y-1 mb-3 pt-2 border-t border-slate-200">
@@ -861,14 +812,7 @@ export default function MasterPanel({
                             </td>
 
                             <td className="px-4 py-3">
-                              <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase border ${
-                                comp.status === 'ativa' ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800' :
-                                comp.status === 'suspensa' ? 'bg-amber-950/60 text-amber-400 border-amber-800' :
-                                comp.status === 'bloqueada' ? 'bg-red-950/60 text-red-400 border-red-800' :
-                                'bg-slate-800 text-slate-400 border-slate-700'
-                              }`}>
-                                {comp.status}
-                              </span>
+                              <CompanyStatusBadge status={comp.status} dark />
                             </td>
                           </tr>
                         );
