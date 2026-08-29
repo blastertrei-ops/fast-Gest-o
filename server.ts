@@ -2,37 +2,40 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import { initializeApp, getApps } from 'firebase/app';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  getDocs, 
-  collection, 
-  query, 
-  where, 
-  updateDoc,
-  deleteDoc
-} from 'firebase/firestore';
-import firebaseConfig from './firebase-applet-config.json';
+import { collection, deleteDoc, doc, firestoreDb, getDoc, getDocs, query, setDoc, updateDoc, where } from './server/firebase';
+import { authenticateToken, hashPassword, JWT_SECRET, loginRateLimit, sanitizeForFirestore, verifyAndMigratePassword } from './server/auth';
+import { canAssignRole, canonicalRole, hasPermission, withoutTenantFields } from './server/security-policy';
+import { createNotification } from './server/notifications';
 
 dotenv.config();
 
-// Initialize Firebase App & Firestore Client for Central Database Persistence
-const firebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
-const firestoreDb = firebaseConfig.firestoreDatabaseId 
-  ? getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(firebaseApp);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'fast_gestao_entregas_jwt_secret_key_2026';
 
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+const allowedOrigins = (process.env.CORS_ORIGINS || process.env.APP_URL || '')
+  .split(',').map(origin => origin.trim()).filter(Boolean);
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
+  next();
+});
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origem não permitida por CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 600
+}));
+app.use(express.json({ limit: '1mb' }));
 
 // Interface definitions
 interface JwtPayload {
@@ -137,226 +140,124 @@ interface ApiDelivery {
   historico: any[];
 }
 
-// Password Hash Function
-function hashPassword(pass: string): string {
-  let hash = 0;
-  for (let i = 0; i < pass.length; i++) {
-    const char = pass.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return `sec_hash_${hash.toString(16)}`;
-}
-
-// Recursive sanitizer to strip `undefined` fields for Firestore compatibility
-function sanitizeForFirestore<T>(data: T): T {
-  if (data === null || data === undefined) {
-    return data;
-  }
-  if (Array.isArray(data)) {
-    return data.map(item => sanitizeForFirestore(item)) as unknown as T;
-  }
-  if (typeof data === 'object') {
-    const cleaned: Record<string, any> = {};
-    for (const [key, value] of Object.entries(data as Record<string, any>)) {
-      if (value !== undefined) {
-        cleaned[key] = sanitizeForFirestore(value);
-      }
+function requirePermission(permission: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user || !hasPermission(req.user.role, permission)) {
+      return res.status(403).json({ error: 'Você não tem permissão para esta ação.' });
     }
-    return cleaned as T;
-  }
-  return data;
-}
-
-// Seed Initial Database in Firestore
-async function seedInitialData() {
-  try {
-    const companyId = 'emp_teste_001';
-
-    // ALWAYS ensure master@sistema.com exists with password master123
-    const masterSistemaSnap = await getDocs(query(collection(firestoreDb, 'usuarios'), where('email', '==', 'master@sistema.com')));
-    if (masterSistemaSnap.empty) {
-      const masterUserSistema: ApiUser = {
-        id: 'usr_master_sistema',
-        companyId,
-        nome: 'Super Administrador Master',
-        email: 'master@sistema.com',
-        senhaHash: hashPassword('master123'),
-        telefone: '(11) 99999-9999',
-        role: 'master',
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-      await setDoc(doc(firestoreDb, 'usuarios', masterUserSistema.id), sanitizeForFirestore(masterUserSistema));
-      console.log('Criado usuário master@sistema.com no Firestore.');
-    } else {
-      // Ensure role and active status and update password hash
-      const docRef = masterSistemaSnap.docs[0].ref;
-      await updateDoc(docRef, sanitizeForFirestore({
-        senhaHash: hashPassword('master123'),
-        ativo: true,
-        role: 'master'
-      }));
-      console.log('Atualizado senha do usuário master@sistema.com.');
-    }
-
-    // ALWAYS ensure master@fastlog.com also exists with password master123
-    const masterFastlogSnap = await getDocs(query(collection(firestoreDb, 'usuarios'), where('email', '==', 'master@fastlog.com')));
-    if (masterFastlogSnap.empty) {
-      const masterUserFastlog: ApiUser = {
-        id: 'usr_master_001',
-        companyId,
-        nome: 'Administrador Master',
-        email: 'master@fastlog.com',
-        senhaHash: hashPassword('master123'),
-        telefone: '(11) 99999-9999',
-        role: 'master',
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-      await setDoc(doc(firestoreDb, 'usuarios', masterUserFastlog.id), sanitizeForFirestore(masterUserFastlog));
-    } else {
-      const docRef = masterFastlogSnap.docs[0].ref;
-      await updateDoc(docRef, {
-        senhaHash: hashPassword('master123'),
-        ativo: true,
-        role: 'master'
-      });
-    }
-
-    const empSnap = await getDocs(collection(firestoreDb, 'empresas'));
-    if (empSnap.empty) {
-      const company: ApiCompany = {
-        id: companyId,
-        nome: 'Empresa Teste Logística',
-        criadoEm: new Date().toISOString()
-      };
-
-      const adminUser: ApiUser = {
-        id: 'usr_admin_001',
-        companyId,
-        nome: 'Administrador Empresa',
-        email: 'admin@empresa.com',
-        senhaHash: hashPassword('123456'),
-        telefone: '(11) 98888-8888',
-        role: 'admin',
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-
-      const driverId = 'drv_mateus_001';
-      const driverUser: ApiUser = {
-        id: 'usr_mateus_001',
-        companyId,
-        nome: 'Mateus Entregador',
-        email: 'mateus@empresa.com',
-        senhaHash: hashPassword('123456'),
-        telefone: '(11) 97777-7777',
-        role: 'motorista',
-        motoristaId: driverId,
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-
-      const driver: ApiDriver = {
-        id: driverId,
-        userId: driverUser.id,
-        companyId,
-        nome: 'Mateus Entregador',
-        cpf: '123.456.789-00',
-        telefone: '(11) 98888-7777',
-        email: 'mateus@empresa.com',
-        cnh: '12345678900',
-        categoriaCNH: 'B',
-        validadeCNH: '2028-12-31',
-        ativo: true,
-        criadoEm: new Date().toISOString()
-      };
-
-      const vehicle: ApiVehicle = {
-        id: 'vec_001',
-        companyId,
-        placa: 'ABC-1234',
-        modelo: 'Fiorino 1.4 EVO',
-        tipo: 'van',
-        ativo: true
-      };
-
-      const delivery: ApiDelivery = {
-        id: 'ent_001',
-        companyId,
-        numeroNF: '1001',
-        numeroPedido: 'PED-5001',
-        cliente: {
-          nome: 'Cliente Teste Mercado S.A.',
-          telefone: '(11) 97777-6666'
-        },
-        endereco: {
-          ruaNumero: 'Av. Paulista',
-          numero: '1500',
-          bairro: 'Bela Vista',
-          cidade: 'São Paulo',
-          cep: '01310-200',
-          latitude: -23.5615,
-          longitude: -46.6560
-        },
-        volumes: 2,
-        valorVenda: 250.00,
-        formaPagamento: 'pix',
-        statusPagamento: 'pago',
-        status: 'aguardando_motorista',
-        motoristaId: driverId,
-        entregadorId: driverUser.id,
-        entregadorNome: driver.nome,
-        dataEntregaPrevista: new Date().toISOString().split('T')[0],
-        prioridade: 'media',
-        criadoPor: adminUser.nome,
-        criadoEm: new Date().toISOString(),
-        atualizadoEm: new Date().toISOString(),
-        origem: 'manual',
-        historico: [
-          {
-            id: 'hist_001',
-            statusAnterior: 'venda_realizada',
-            statusNovo: 'aguardando_motorista',
-            alteradoPor: adminUser.nome,
-            alteradoEm: new Date().toISOString(),
-            motivo: 'Pedido criado e atribuído ao entregador Mateus'
-          }
-        ]
-      };
-
-      await setDoc(doc(firestoreDb, 'empresas', companyId), company);
-      await setDoc(doc(firestoreDb, 'usuarios', adminUser.id), adminUser);
-      await setDoc(doc(firestoreDb, 'usuarios', driverUser.id), driverUser);
-      await setDoc(doc(firestoreDb, 'drivers', driverId), driver);
-      await setDoc(doc(firestoreDb, 'vehicles', vehicle.id), vehicle);
-      await setDoc(doc(firestoreDb, 'deliveries', delivery.id), delivery);
-      console.log('Seed inicial no Firestore concluído com sucesso.');
-    }
-  } catch (err) {
-    console.error('Erro ao realizar seed no Firestore:', err);
-  }
-}
-
-seedInitialData();
-
-// Middleware: Authenticate JWT Token
-function authenticateToken(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Token de autenticação não fornecido' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-    req.user = decoded;
     next();
-  } catch (err) {
-    return res.status(403).json({ error: 'Token inválido ou expirado' });
+  };
+}
+
+function requireRole(...roles: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user || !roles.map(canonicalRole).includes(canonicalRole(req.user.role))) {
+      return res.status(403).json({ error: 'Você não tem permissão para esta ação.' });
+    }
+    next();
+  };
+}
+
+function requireCompanyAccess(req: Request, res: Response, next: NextFunction) {
+  const companyId = req.params.companyId;
+  if (!req.user || !companyId) return res.status(401).json({ error: 'Não autorizado' });
+  if (req.user.role !== 'master' && req.user.companyId !== companyId) {
+    return res.status(403).json({ error: 'Acesso negado para esta empresa.' });
   }
+  next();
+}
+
+async function hasDocumentCompanyAccess(req: Request, res: Response, collectionName: string, id: string): Promise<boolean> {
+  const snapshot = await getDoc(doc(firestoreDb, collectionName, id));
+  if (!snapshot.exists()) {
+    res.status(404).json({ error: 'Registro não encontrado.' });
+    return false;
+  }
+  const data = snapshot.data() as { companyId?: string };
+  if (req.user?.role !== 'master' && data.companyId !== req.user?.companyId) {
+    res.status(403).json({ error: 'Acesso negado para este registro.' });
+    return false;
+  }
+  return true;
+}
+
+async function belongsToCompany(collectionName: string, id: string, companyId: string): Promise<boolean> {
+  const snapshot = await getDoc(doc(firestoreDb, collectionName, id));
+  return snapshot.exists() && snapshot.data()?.companyId === companyId;
+}
+
+async function validateCompanyReferences(res: Response, companyId: string, data: Record<string, unknown>): Promise<boolean> {
+  const references: Array<[string, unknown, string]> = [
+    ['drivers', data.motoristaId, 'motorista'],
+    ['drivers', data.driverId, 'motorista'],
+    ['usuarios', data.entregadorId, 'entregador'],
+    ['usuarios', data.userId, 'usuário vinculado'],
+    ['deliveries', data.deliveryId, 'entrega']
+  ];
+  for (const [collectionName, id, label] of references) {
+    if (typeof id === 'string' && !(await belongsToCompany(collectionName, id, companyId))) {
+      res.status(400).json({ error: `O ${label} informado não pertence a esta empresa.` });
+      return false;
+    }
+  }
+  return true;
+}
+
+async function canDriverAccessDelivery(userId: string, delivery: ApiDelivery): Promise<boolean> {
+  const snapshot = await getDoc(doc(firestoreDb, 'usuarios', userId));
+  if (!snapshot.exists()) return false;
+  const user = snapshot.data() as ApiUser;
+  return delivery.entregadorId === userId || delivery.motoristaId === user.motoristaId;
+}
+
+async function requireDeliveryWriteAccess(req: Request, res: Response, delivery: ApiDelivery): Promise<boolean> {
+  if (canonicalRole(req.user?.role || '') !== 'motorista') return true;
+  if (!(await canDriverAccessDelivery(req.user!.userId, delivery))) {
+    res.status(403).json({ error: 'Entregadores só podem atualizar entregas atribuídas a si.' });
+    return false;
+  }
+  return true;
+}
+
+function isGpsCoordinate(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
+function gpsPointFromRequest(data: Record<string, unknown>) {
+  if (!isGpsCoordinate(data.latitude, -90, 90) || !isGpsCoordinate(data.longitude, -180, 180)) return null;
+  const events = new Set(['aceito', 'em_rota', 'periodic', 'parado', 'entregue', 'nao_entregue']);
+  return {
+    latitude: data.latitude,
+    longitude: data.longitude,
+    accuracy: typeof data.accuracy === 'number' ? Math.max(0, Math.min(data.accuracy, 10_000)) : undefined,
+    speed: typeof data.speed === 'number' ? Math.max(0, Math.min(data.speed, 300)) : undefined,
+    address: typeof data.address === 'string' ? data.address.slice(0, 160) : undefined,
+    event: typeof data.event === 'string' && events.has(data.event) ? data.event : 'periodic',
+    // The server records receipt time so a device cannot make an old point look current.
+    timestamp: new Date().toISOString()
+  };
+}
+
+async function requireDriverLocationAccess(req: Request, res: Response, driverId: string): Promise<ApiDriver | null> {
+  const snapshot = await getDoc(doc(firestoreDb, 'drivers', driverId));
+  if (!snapshot.exists()) {
+    res.status(404).json({ error: 'Entregador não encontrado.' });
+    return null;
+  }
+  const driver = snapshot.data() as ApiDriver;
+  if (driver.companyId !== req.user!.companyId && req.user!.role !== 'master') {
+    res.status(403).json({ error: 'Acesso negado para este entregador.' });
+    return null;
+  }
+  if (canonicalRole(req.user!.role) === 'motorista') {
+    const userSnapshot = await getDoc(doc(firestoreDb, 'usuarios', req.user!.userId));
+    const user = userSnapshot.data() as ApiUser | undefined;
+    if (driver.userId !== req.user!.userId && user?.motoristaId !== driverId) {
+      res.status(403).json({ error: 'Entregadores só podem transmitir a própria localização.' });
+      return null;
+    }
+  }
+  return driver;
 }
 
 // ---------------- API ROUTES ----------------
@@ -365,13 +266,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.post('/api/seed', async (req, res) => {
-  await seedInitialData();
-  res.json({ success: true, message: 'Dados de seed inicial verificados e carregados no Firestore.' });
-});
-
 // Auth API Routes (Central Firestore Authentication)
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -395,8 +291,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Conta inativa. Contate o administrador.' });
     }
 
-    const hash = hashPassword(password);
-    if (user.senhaHash !== hash) {
+    if (!(await verifyAndMigratePassword(user, String(password)))) {
       return res.status(401).json({ error: 'E-mail ou senha incorretos' });
     }
 
@@ -472,6 +367,51 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   }
 });
 
+// Password recovery deliberately does not reset to a shared default password.
+// Delivery of the generated one-time token belongs to the configured mail service.
+app.post('/api/auth/recover-password', loginRateLimit, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (email) {
+    const users = await getDocs(query(collection(firestoreDb, 'usuarios'), where('email', '==', email)));
+    if (!users.empty) {
+      const token = await bcrypt.hash(`${crypto.randomUUID()}:${Date.now()}`, 12);
+      await updateDoc(users.docs[0].ref, {
+        passwordResetTokenHash: token,
+        passwordResetExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString()
+      });
+      // Do not expose the token. A production mail provider consumes this record.
+    }
+  }
+  return res.json({ success: true, message: 'Caso o e-mail exista em nossa base, uma mensagem de redefinição será enviada.' });
+});
+
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || newPassword.length < 12) {
+    return res.status(400).json({ error: 'A nova senha deve ter ao menos 12 caracteres.' });
+  }
+  const userRef = doc(firestoreDb, 'usuarios', req.user!.userId);
+  const snapshot = await getDoc(userRef);
+  if (!snapshot.exists()) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  const user = snapshot.data() as ApiUser;
+  if (!(await verifyAndMigratePassword(user, currentPassword))) {
+    return res.status(401).json({ error: 'Senha atual incorreta.' });
+  }
+  await updateDoc(userRef, { senhaHash: await hashPassword(newPassword) });
+  return res.json({ success: true });
+});
+
+app.put('/api/auth/profile', authenticateToken, async (req, res) => {
+  const { nome, email, telefone } = req.body || {};
+  const updates: Record<string, string> = {};
+  if (typeof nome === 'string') updates.nome = nome.trim();
+  if (typeof telefone === 'string') updates.telefone = telefone.trim();
+  if (typeof email === 'string') updates.email = email.trim().toLowerCase();
+  if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nenhum dado válido foi informado.' });
+  await updateDoc(doc(firestoreDb, 'usuarios', req.user!.userId), updates);
+  return res.json({ success: true, user: { ...req.user, ...updates } });
+});
+
 app.post('/api/auth/register-company', async (req, res) => {
   try {
     const { companyName, adminName, adminEmail, adminPassword, adminPhone } = req.body;
@@ -502,7 +442,7 @@ app.post('/api/auth/register-company', async (req, res) => {
       companyId,
       nome: adminName,
       email: cleanEmail,
-      senhaHash: hashPassword(adminPassword),
+      senhaHash: await hashPassword(adminPassword),
       telefone: adminPhone || '',
       role: 'admin',
       ativo: true,
@@ -527,7 +467,7 @@ app.post('/api/auth/register-company', async (req, res) => {
 });
 
 // MASTER PANEL (SUPER ADMIN) ROUTES
-app.get('/api/master/companies', authenticateToken, async (req, res) => {
+app.get('/api/master/companies', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const snap = await getDocs(collection(firestoreDb, 'empresas'));
     const companies = snap.docs.map(d => d.data());
@@ -538,7 +478,7 @@ app.get('/api/master/companies', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/master/companies', authenticateToken, async (req, res) => {
+app.post('/api/master/companies', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const { 
       nome, nomeFantasia, cnpj, responsavel, telefone, email, 
@@ -588,7 +528,7 @@ app.post('/api/master/companies', authenticateToken, async (req, res) => {
       companyId,
       nome: adminName,
       email: cleanEmail,
-      senhaHash: hashPassword(adminPassword),
+      senhaHash: await hashPassword(adminPassword),
       telefone: telefone || '',
       role: 'admin',
       ativo: true,
@@ -618,7 +558,7 @@ app.post('/api/master/companies', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/master/companies/:id', authenticateToken, async (req, res) => {
+app.put('/api/master/companies/:id', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -657,7 +597,7 @@ app.put('/api/master/companies/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/master/companies/:id', authenticateToken, async (req, res) => {
+app.delete('/api/master/companies/:id', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const { id } = req.params;
     const compRef = doc(firestoreDb, 'empresas', id);
@@ -703,7 +643,7 @@ app.delete('/api/master/companies/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/master/audit-logs', authenticateToken, async (req, res) => {
+app.get('/api/master/audit-logs', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const snap = await getDocs(collection(firestoreDb, 'master_auditoria'));
     const logs = snap.docs.map(d => d.data());
@@ -714,7 +654,7 @@ app.get('/api/master/audit-logs', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/master/custom-roles', authenticateToken, async (req, res) => {
+app.get('/api/master/custom-roles', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const snap = await getDocs(collection(firestoreDb, 'custom_roles'));
     const roles = snap.docs.map(d => d.data());
@@ -724,7 +664,7 @@ app.get('/api/master/custom-roles', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/master/custom-roles', authenticateToken, async (req, res) => {
+app.post('/api/master/custom-roles', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const roleData = req.body;
     const roleId = roleData.id || ('role_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
@@ -740,7 +680,7 @@ app.post('/api/master/custom-roles', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/master/custom-roles/:id', authenticateToken, async (req, res) => {
+app.delete('/api/master/custom-roles/:id', authenticateToken, requireRole('master'), async (req, res) => {
   try {
     const { id } = req.params;
     if (req.user?.role !== 'master') {
@@ -758,8 +698,12 @@ app.delete('/api/master/custom-roles/:id', authenticateToken, async (req, res) =
   }
 });
 
+// The URL company id is never trusted by itself: non-master sessions may only
+// operate on the company embedded in their signed token.
+app.use('/api/:resource/:companyId', authenticateToken, requireCompanyAccess);
+
 // Multi-tenant Company, Users, Drivers, Vehicles & Deliveries REST Routes
-app.get('/api/company/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/company/:companyId', authenticateToken, requirePermission('company:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const snap = await getDoc(doc(firestoreDb, 'empresas', companyId));
@@ -770,14 +714,14 @@ app.get('/api/company/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/deliveries/:companyId', authenticateToken, requirePermission('deliveries:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'deliveries'), where('companyId', '==', companyId));
     const snap = await getDocs(q);
     let deliveries = snap.docs.map(d => d.data() as ApiDelivery);
 
-    if (req.user?.role === 'motorista') {
+    if (canonicalRole(req.user?.role || '') === 'motorista') {
       const userSnap = await getDoc(doc(firestoreDb, 'usuarios', req.user.userId));
       const userDoc = userSnap.exists() ? userSnap.data() as ApiUser : undefined;
       const driverIdFromUser = userDoc?.motoristaId;
@@ -798,14 +742,15 @@ app.get('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/deliveries/:companyId', authenticateToken, requirePermission('deliveries:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const newDeliveryData = req.body;
+    if (!(await validateCompanyReferences(res, companyId, newDeliveryData))) return;
 
     const deliveryId = newDeliveryData.id || ('ent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
     const delivery: ApiDelivery = {
-      ...newDeliveryData,
+      ...withoutTenantFields(newDeliveryData),
       id: deliveryId,
       companyId,
       criadoEm: newDeliveryData.criadoEm || new Date().toISOString(),
@@ -813,6 +758,7 @@ app.post('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
     };
 
     await setDoc(doc(firestoreDb, 'deliveries', deliveryId), delivery);
+    await createNotification(companyId, 'entrega_criada', 'Nova entrega cadastrada', `A entrega NF ${delivery.numeroNF || delivery.id} foi cadastrada.`, deliveryId);
     return res.json({ success: true, delivery });
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao salvar entrega no banco central' });
@@ -822,34 +768,49 @@ app.post('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
 app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    if (!(await hasDocumentCompanyAccess(req, res, 'deliveries', id))) return;
+    const updates = withoutTenantFields(req.body);
 
     const delRef = doc(firestoreDb, 'deliveries', id);
     const delSnap = await getDoc(delRef);
     if (!delSnap.exists()) {
       return res.status(404).json({ error: 'Entrega não encontrada' });
     }
+    const existing = delSnap.data() as ApiDelivery;
+    if (!hasPermission(req.user!.role, 'deliveries:write') && !(await requireDeliveryWriteAccess(req, res, existing))) return;
+    if (!hasPermission(req.user!.role, 'deliveries:write') && !hasPermission(req.user!.role, 'deliveries:own-write')) {
+      return res.status(403).json({ error: 'Você não tem permissão para atualizar entregas.' });
+    }
+    if (canonicalRole(req.user!.role) === 'motorista') {
+      const allowed = new Set(['status', 'comprovante', 'historico', 'atualizadoEm']);
+      for (const key of Object.keys(updates)) if (!allowed.has(key)) delete updates[key];
+    }
+    if (!(await validateCompanyReferences(res, existing.companyId, updates))) return;
 
     const updated = {
-      ...delSnap.data(),
+      ...existing,
       ...updates,
       atualizadoEm: new Date().toISOString()
     };
 
     await setDoc(delRef, updated, { merge: true });
+    if (updates.status && updates.status !== existing.status) {
+      await createNotification(existing.companyId, 'status_entrega', 'Status de entrega atualizado', `A entrega NF ${existing.numeroNF || existing.id} mudou para ${updates.status}.`, id);
+    }
     return res.json({ success: true, delivery: updated });
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao atualizar entrega' });
   }
 });
 
-app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, async (req, res) => {
+app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, requirePermission('deliveries:delete'), async (req, res) => {
   try {
     const { companyId, deliveryId } = req.params;
+    if (!(await hasDocumentCompanyAccess(req, res, 'deliveries', deliveryId))) return;
     const { deleteFiles, motivo } = req.body || {};
 
     // Only Admin and Operators can delete deliveries (drivers/motoristas cannot)
-    if (req.user?.role === 'motorista') {
+    if (canonicalRole(req.user?.role || '') === 'motorista') {
       return res.status(403).json({ error: 'Entregadores não têm permissão para excluir entregas.' });
     }
 
@@ -891,7 +852,24 @@ app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, async (r
   }
 });
 
-app.get('/api/drivers/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/notifications/:companyId', authenticateToken, requirePermission('notifications:read'), async (req, res) => {
+  const { companyId } = req.params;
+  const snapshot = await getDocs(query(collection(firestoreDb, 'notifications'), where('companyId', '==', companyId)));
+  return res.json(snapshot.docs.map(item => item.data()).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
+});
+
+app.put('/api/notifications/:companyId/:notificationId/read', authenticateToken, requirePermission('notifications:read'), async (req, res) => {
+  const { companyId, notificationId } = req.params;
+  if (!(await hasDocumentCompanyAccess(req, res, 'notifications', notificationId))) return;
+  const ref = doc(firestoreDb, 'notifications', notificationId);
+  const snapshot = await getDoc(ref);
+  const readBy = new Set<string>(snapshot.data()?.readBy || []);
+  readBy.add(req.user!.userId);
+  await updateDoc(ref, { readBy: [...readBy] });
+  return res.json({ success: true, companyId });
+});
+
+app.get('/api/drivers/:companyId', authenticateToken, requirePermission('drivers:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'drivers'), where('companyId', '==', companyId));
@@ -902,14 +880,15 @@ app.get('/api/drivers/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/drivers/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/drivers/:companyId', authenticateToken, requirePermission('drivers:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const driverData = req.body;
+    if (!(await validateCompanyReferences(res, companyId, driverData))) return;
 
     const driverId = driverData.id || ('drv_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
     const driver: ApiDriver = {
-      ...driverData,
+      ...withoutTenantFields(driverData),
       id: driverId,
       companyId,
       criadoEm: driverData.criadoEm || new Date().toISOString()
@@ -922,7 +901,7 @@ app.post('/api/drivers/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/vehicles/:companyId', authenticateToken, requirePermission('vehicles:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'vehicles'), where('companyId', '==', companyId));
@@ -933,14 +912,14 @@ app.get('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/vehicles/:companyId', authenticateToken, requirePermission('vehicles:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const vehicleData = req.body;
 
     const vehicleId = vehicleData.id || ('vec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
     const vehicle: ApiVehicle = {
-      ...vehicleData,
+      ...withoutTenantFields(vehicleData),
       id: vehicleId,
       companyId
     };
@@ -975,7 +954,7 @@ function getPermissionsForRole(role: string) {
   };
 }
 
-app.get('/api/users/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/users/:companyId', authenticateToken, requirePermission('users:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = companyId === 'global'
@@ -992,13 +971,19 @@ app.get('/api/users/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/users/:companyId', authenticateToken, requirePermission('users:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const { nome, email, senha, role, motoristaId, telefone, ativo = true } = req.body;
 
     if (!nome || !email || !senha || !role) {
       return res.status(400).json({ error: 'Preencha nome, e-mail, senha e perfil.' });
+    }
+    if (!canAssignRole(req.user!.role, role)) {
+      return res.status(403).json({ error: 'Você não pode atribuir este perfil.' });
+    }
+    if (motoristaId && !(await belongsToCompany('drivers', motoristaId, companyId))) {
+      return res.status(400).json({ error: 'O motorista informado não pertence a esta empresa.' });
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
@@ -1024,7 +1009,7 @@ app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
       tenantId: resolvedTenantId,
       nome: String(nome).trim(),
       email: cleanEmail,
-      senhaHash: hashPassword(senha),
+      senhaHash: await hashPassword(senha),
       telefone: telefone ? String(telefone).trim() : '',
       role,
       permissoesCustomizadas: defaultPerms,
@@ -1084,15 +1069,24 @@ app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
+app.put('/api/users/:companyId/:userId', authenticateToken, requirePermission('users:write'), async (req, res) => {
   try {
     const { userId, companyId } = req.params;
-    const updates = req.body;
+    if (!(await hasDocumentCompanyAccess(req, res, 'usuarios', userId))) return;
+    const updates = withoutTenantFields(req.body);
+    if (updates.role && !canAssignRole(req.user!.role, updates.role)) {
+      return res.status(403).json({ error: 'Você não pode atribuir este perfil.' });
+    }
+    delete updates.permissoesCustomizadas;
+    delete updates.senhaHash;
 
     const userRef = doc(firestoreDb, 'usuarios', userId);
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    if (updates.motoristaId && !(await belongsToCompany('drivers', updates.motoristaId, companyId))) {
+      return res.status(400).json({ error: 'O motorista informado não pertence a esta empresa.' });
     }
 
     if (updates.email) {
@@ -1107,7 +1101,7 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
     }
 
     if (updates.senha) {
-      updates.senhaHash = hashPassword(updates.senha);
+      updates.senhaHash = await hashPassword(updates.senha);
       delete updates.senha;
     }
 
@@ -1133,9 +1127,10 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
   }
 });
 
-app.delete('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
+app.delete('/api/users/:companyId/:userId', authenticateToken, requirePermission('users:write'), async (req, res) => {
   try {
     const { userId, companyId } = req.params;
+    if (!(await hasDocumentCompanyAccess(req, res, 'usuarios', userId))) return;
     const userRef = doc(firestoreDb, 'usuarios', userId);
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) {
@@ -1166,10 +1161,12 @@ app.delete('/api/users/:companyId/:userId', authenticateToken, async (req, res) 
   }
 });
 
-app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res) => {
+app.put('/api/drivers/:companyId/:driverId', authenticateToken, requirePermission('drivers:write'), async (req, res) => {
   try {
     const { driverId } = req.params;
+    if (!(await hasDocumentCompanyAccess(req, res, 'drivers', driverId))) return;
     const updates = req.body;
+    if (!(await validateCompanyReferences(res, req.params.companyId, updates))) return;
 
     const drvRef = doc(firestoreDb, 'drivers', driverId);
     const drvSnap = await getDoc(drvRef);
@@ -1177,7 +1174,7 @@ app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res)
       return res.status(404).json({ error: 'Entregador não encontrado' });
     }
 
-    await updateDoc(drvRef, updates);
+    await updateDoc(drvRef, sanitizeForFirestore(withoutTenantFields(updates)));
     return res.json({ success: true });
   } catch (err) {
     console.error('Erro ao atualizar entregador:', err);
@@ -1185,9 +1182,10 @@ app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res)
   }
 });
 
-app.delete('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res) => {
+app.delete('/api/drivers/:companyId/:driverId', authenticateToken, requirePermission('drivers:write'), async (req, res) => {
   try {
     const { driverId } = req.params;
+    if (!(await hasDocumentCompanyAccess(req, res, 'drivers', driverId))) return;
     const drvRef = doc(firestoreDb, 'drivers', driverId);
     const drvSnap = await getDoc(drvRef);
     if (!drvSnap.exists()) {
@@ -1202,9 +1200,10 @@ app.delete('/api/drivers/:companyId/:driverId', authenticateToken, async (req, r
   }
 });
 
-app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, res) => {
+app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, requirePermission('vehicles:write'), async (req, res) => {
   try {
     const { vehicleId } = req.params;
+    if (!(await hasDocumentCompanyAccess(req, res, 'vehicles', vehicleId))) return;
     const updates = req.body;
 
     const vecRef = doc(firestoreDb, 'vehicles', vehicleId);
@@ -1213,7 +1212,7 @@ app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, re
       return res.status(404).json({ error: 'Veículo não encontrado' });
     }
 
-    await updateDoc(vecRef, updates);
+    await updateDoc(vecRef, sanitizeForFirestore(withoutTenantFields(updates)));
     return res.json({ success: true });
   } catch (err) {
     console.error('Erro ao atualizar veículo:', err);
@@ -1221,9 +1220,10 @@ app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, re
   }
 });
 
-app.delete('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, res) => {
+app.delete('/api/vehicles/:companyId/:vehicleId', authenticateToken, requirePermission('vehicles:write'), async (req, res) => {
   try {
     const { vehicleId } = req.params;
+    if (!(await hasDocumentCompanyAccess(req, res, 'vehicles', vehicleId))) return;
     const vecRef = doc(firestoreDb, 'vehicles', vehicleId);
     const vecSnap = await getDoc(vecRef);
     if (!vecSnap.exists()) {
@@ -1239,7 +1239,7 @@ app.delete('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req,
 });
 
 // CLIENTS REST ROUTES
-app.get('/api/clients/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/clients/:companyId', authenticateToken, requirePermission('clients:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'clientes'), where('companyId', '==', companyId));
@@ -1250,7 +1250,7 @@ app.get('/api/clients/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/clients/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/clients/:companyId', authenticateToken, requirePermission('clients:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const clientData = req.body;
@@ -1272,9 +1272,10 @@ app.post('/api/clients/:companyId', authenticateToken, async (req, res) => {
 });
 
 // SINGLE CLIENT DELETION WITH SECURITY & ACTIVE DELIVERIES BLOCKING
-app.delete('/api/clients/:companyId/:clientId', authenticateToken, async (req, res) => {
+app.delete('/api/clients/:companyId/:clientId', authenticateToken, requirePermission('clients:delete'), async (req, res) => {
   try {
     const { companyId, clientId } = req.params;
+    if (!(await hasDocumentCompanyAccess(req, res, 'clientes', clientId))) return;
 
     // 1. Security check: Only administrators can delete
     if (req.user?.role !== 'admin' && req.user?.role !== 'master') {
@@ -1339,7 +1340,7 @@ app.delete('/api/clients/:companyId/:clientId', authenticateToken, async (req, r
 });
 
 // BULK CLIENT CLEANUP FOR ADMINS
-app.post('/api/admin/bulk-cleanup-clients/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/admin/bulk-cleanup-clients/:companyId', authenticateToken, requirePermission('clients:delete'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const { startDate, endDate, mode } = req.body; // mode: 'only_without_deliveries' | 'all_with_history'
@@ -1434,7 +1435,7 @@ app.post('/api/admin/bulk-cleanup-clients/:companyId', authenticateToken, async 
 });
 
 // GET AUDIT TRAIL
-app.get('/api/audit/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/audit/:companyId', authenticateToken, requirePermission('audit:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     if (req.user?.role !== 'admin' && req.user?.role !== 'master') {
@@ -1451,7 +1452,7 @@ app.get('/api/audit/:companyId', authenticateToken, async (req, res) => {
 });
 
 // GET STORAGE MONITOR METRICS
-app.get('/api/storage-metrics/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/storage-metrics/:companyId', authenticateToken, requirePermission('storage:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
 
@@ -1540,6 +1541,135 @@ app.get('/api/storage-metrics/:companyId', authenticateToken, async (req, res) =
     console.error('Erro ao calcular métricas de armazenamento:', err);
     return res.status(500).json({ error: 'Erro ao calcular métricas de armazenamento' });
   }
+});
+
+// GPS uses dedicated endpoints rather than the generic data API.  This gives each
+// driver one current-location document and keeps the route tied to its delivery.
+app.get('/api/gps/:companyId/drivers', authenticateToken, requireCompanyAccess, requirePermission('locations:read'), async (req, res) => {
+  const snapshot = await getDocs(query(collection(firestoreDb, 'driver_locations'), where('companyId', '==', req.params.companyId)));
+  return res.json(snapshot.docs.map(item => item.data()));
+});
+
+app.put('/api/gps/:companyId/drivers/:driverId', authenticateToken, requireCompanyAccess, requirePermission('locations:write'), async (req, res) => {
+  const { companyId, driverId } = req.params;
+  const driver = await requireDriverLocationAccess(req, res, driverId);
+  if (!driver) return;
+  const point = gpsPointFromRequest(req.body || {});
+  if (!point) return res.status(400).json({ error: 'Coordenadas de GPS inválidas.' });
+
+  const payload = {
+    id: driverId,
+    driverId,
+    driverName: driver.nome,
+    companyId,
+    ...point,
+    lastUpdated: point.timestamp,
+    isOnline: true,
+    isMoving: (point.speed || 0) > 3,
+    currentDeliveryId: typeof req.body?.currentDeliveryId === 'string' ? req.body.currentDeliveryId : undefined,
+    heading: typeof req.body?.heading === 'number' ? Math.max(0, Math.min(req.body.heading, 360)) : undefined
+  };
+  if (payload.currentDeliveryId) {
+    const deliverySnapshot = await getDoc(doc(firestoreDb, 'deliveries', payload.currentDeliveryId));
+    if (!deliverySnapshot.exists() || deliverySnapshot.data()?.companyId !== companyId) {
+      return res.status(400).json({ error: 'A entrega informada não pertence a esta empresa.' });
+    }
+    if (!(await requireDeliveryWriteAccess(req, res, deliverySnapshot.data() as ApiDelivery))) return;
+  }
+  await setDoc(doc(firestoreDb, 'driver_locations', driverId), sanitizeForFirestore(payload), { merge: true });
+  return res.json({ success: true, location: payload });
+});
+
+app.get('/api/gps/:companyId/deliveries/:deliveryId/route', authenticateToken, requireCompanyAccess, requirePermission('routes:read'), async (req, res) => {
+  const { companyId, deliveryId } = req.params;
+  if (!(await belongsToCompany('deliveries', deliveryId, companyId))) return res.status(404).json({ error: 'Entrega não encontrada.' });
+  const snapshot = await getDoc(doc(firestoreDb, 'route_histories', deliveryId));
+  return res.json(snapshot.exists() ? snapshot.data() : null);
+});
+
+app.post('/api/gps/:companyId/deliveries/:deliveryId/points', authenticateToken, requireCompanyAccess, requirePermission('routes:write'), async (req, res) => {
+  const { companyId, deliveryId } = req.params;
+  const deliverySnapshot = await getDoc(doc(firestoreDb, 'deliveries', deliveryId));
+  if (!deliverySnapshot.exists() || deliverySnapshot.data()?.companyId !== companyId) return res.status(404).json({ error: 'Entrega não encontrada.' });
+  const delivery = deliverySnapshot.data() as ApiDelivery;
+  if (!(await requireDeliveryWriteAccess(req, res, delivery))) return;
+  const point = gpsPointFromRequest(req.body || {});
+  if (!point) return res.status(400).json({ error: 'Coordenadas de GPS inválidas.' });
+
+  const routeRef = doc(firestoreDb, 'route_histories', deliveryId);
+  const existing = await getDoc(routeRef);
+  const previousPoints = Array.isArray(existing.data()?.points) ? existing.data()!.points : [];
+  // Keep a bounded history per delivery to make GPS storage predictable.
+  const points = [...previousPoints.slice(-1_999), { ...point, deliveryId }];
+  const driverId = delivery.motoristaId || (await getDoc(doc(firestoreDb, 'usuarios', req.user!.userId))).data()?.motoristaId || req.user!.userId;
+  const driverSnapshot = await getDoc(doc(firestoreDb, 'drivers', driverId));
+  const driverName = driverSnapshot.exists() ? (driverSnapshot.data() as ApiDriver).nome : undefined;
+  const payload = {
+    id: deliveryId,
+    deliveryId,
+    driverId,
+    driverName,
+    companyId,
+    points,
+    startedAt: existing.data()?.startedAt || point.timestamp,
+    updatedAt: point.timestamp
+  };
+  await setDoc(routeRef, sanitizeForFirestore(payload), { merge: true });
+  return res.status(201).json({ success: true, pointCount: points.length });
+});
+
+// API-only data transport used by the browser.  The collection allow-list keeps
+// arbitrary Firestore collections and cross-tenant reads out of the client.
+const tenantCollections = new Set(['deliveries', 'drivers', 'vehicles', 'usuarios', 'clientes', 'auditoria']);
+const tenantWritableCollections = new Set(['deliveries', 'drivers', 'vehicles', 'clientes']);
+const collectionPermission: Record<string, { read: string; write?: string }> = {
+  deliveries: { read: 'deliveries:read', write: 'deliveries:write' },
+  drivers: { read: 'drivers:read', write: 'drivers:write' },
+  vehicles: { read: 'vehicles:read', write: 'vehicles:write' },
+  usuarios: { read: 'users:read' },
+  clientes: { read: 'clients:read', write: 'clients:write' },
+  auditoria: { read: 'audit:read' }
+};
+function requireCollectionPermission(action: 'read' | 'write') {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const permission = collectionPermission[req.params.collection]?.[action];
+    if (!permission || !req.user || !hasPermission(req.user.role, permission)) {
+      return res.status(403).json({ error: 'Você não tem permissão para este recurso.' });
+    }
+    next();
+  };
+}
+app.get('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, requireCollectionPermission('read'), async (req, res) => {
+  const { companyId, collection: collectionName } = req.params;
+  if (!tenantCollections.has(collectionName)) return res.status(404).json({ error: 'Recurso não encontrado.' });
+  const snapshot = await getDocs(query(collection(firestoreDb, collectionName), where('companyId', '==', companyId)));
+  const records = snapshot.docs.map(item => item.data());
+  return res.json(collectionName === 'usuarios' ? records.map(({ senhaHash, ...user }: any) => user) : records);
+});
+app.put('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, requireCollectionPermission('write'), async (req, res) => {
+  const { companyId, collection: collectionName, id } = req.params;
+  if (!tenantWritableCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
+  if (!(await validateCompanyReferences(res, companyId, req.body))) return;
+  const payload = { ...req.body, companyId, atualizadoEm: new Date().toISOString() };
+  delete payload.senhaHash;
+  await setDoc(doc(firestoreDb, collectionName, id), sanitizeForFirestore(payload), { merge: true });
+  return res.json({ success: true });
+});
+app.post('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, requireCollectionPermission('write'), async (req, res) => {
+  const { companyId, collection: collectionName } = req.params;
+  if (!tenantWritableCollections.has(collectionName)) return res.status(404).json({ error: 'Recurso não encontrado.' });
+  if (!(await validateCompanyReferences(res, companyId, req.body))) return;
+  const id = String(req.body?.id || `${collectionName.slice(0, 3)}_${crypto.randomUUID()}`);
+  const payload = { ...req.body, id, companyId, criadoEm: req.body?.criadoEm || new Date().toISOString() };
+  delete payload.senhaHash;
+  await setDoc(doc(firestoreDb, collectionName, id), sanitizeForFirestore(payload), { merge: true });
+  return res.json({ success: true, data: payload });
+});
+app.delete('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, requireCollectionPermission('write'), async (req, res) => {
+  const { collection: collectionName, id } = req.params;
+  if (!tenantWritableCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
+  await deleteDoc(doc(firestoreDb, collectionName, id));
+  return res.json({ success: true });
 });
 
 // START EXPRESS & VITE SERVER

@@ -6,6 +6,8 @@ import {
 import { DriverLocationState, DeliveryRouteHistory, Entrega, Motorista } from '../types';
 import { Database } from '../lib/db';
 import { calculateDistanceKm, calculateEta } from '../lib/gpsTracker';
+import GpsRouteMap from './GpsRouteMap';
+import LiveDriversMap from './LiveDriversMap';
 
 interface GpsTrackingPanelProps {
   companyId: string;
@@ -141,6 +143,22 @@ export default function GpsTrackingPanel({
           </button>
         </div>
       </div>
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-amber-500" />
+            Mapa ao vivo dos entregadores
+          </h4>
+          <span className="text-[11px] text-slate-500">Clique em um ponto para localizar o entregador</span>
+        </div>
+        <LiveDriversMap
+          locations={filteredLocations}
+          deliveries={deliveries}
+          focusedDriverId={focusedDriverId}
+          onSelectDriver={setFocusedDriverId}
+        />
+      </section>
 
       {/* ACTIVE DRIVERS LOCATION CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -370,6 +388,11 @@ export default function GpsTrackingPanel({
 
             {selectedDeliveryRoute && selectedDeliveryRoute.points?.length > 0 ? (
               <div className="space-y-4">
+                <GpsRouteMap
+                  points={selectedDeliveryRoute.points}
+                  currentLocation={driverLocations.find(location => location.driverId === selectedDeliveryRoute.driverId) || null}
+                  destination={selectedDelivery.endereco}
+                />
                 {/* ROUTE SUMMARY STATS */}
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">

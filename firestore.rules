@@ -1,8 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // The web client never connects to Firestore. All access is mediated by the
+    // server's Firebase Admin SDK, which enforces authentication and tenancy.
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

@@ -7,6 +7,10 @@ let activeIntervalId: any = null;
 let currentTrackingDriverId: string | null = null;
 let currentTrackingCompanyId: string | null = null;
 let currentDeliveryId: string | null = null;
+let lastTransmittedPoint: GpsLogPoint | null = null;
+
+const MIN_TRANSMIT_INTERVAL_MS = 12_000;
+const MIN_TRANSMIT_DISTANCE_KM = 0.015;
 
 /**
  * Haversine formula to calculate distance between two coordinates in kilometers
@@ -96,6 +100,20 @@ export function startDriverGpsTracking(
       deliveryId: currentDeliveryId || undefined
     };
 
+    const elapsedMs = lastTransmittedPoint
+      ? Date.now() - new Date(lastTransmittedPoint.timestamp).getTime()
+      : Number.POSITIVE_INFINITY;
+    const movedKm = lastTransmittedPoint
+      ? calculateDistanceKm(lastTransmittedPoint.latitude, lastTransmittedPoint.longitude, lat, lng)
+      : Number.POSITIVE_INFINITY;
+    const shouldTransmit = eventType === 'aceito' ||
+      elapsedMs >= MIN_TRANSMIT_INTERVAL_MS ||
+      movedKm >= MIN_TRANSMIT_DISTANCE_KM;
+
+    if (!shouldTransmit) return;
+
+    lastTransmittedPoint = point;
+
     // Save offline locally first
     OfflineStorage.saveGpsLogLocally(point);
 
@@ -171,4 +189,5 @@ export function stopDriverGpsTracking() {
   currentTrackingDriverId = null;
   currentTrackingCompanyId = null;
   currentDeliveryId = null;
+  lastTransmittedPoint = null;
 }
