@@ -2,48 +2,17 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import bcrypt from 'bcryptjs';
-import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { collection, deleteDoc, doc, firestoreDb, getDoc, getDocs, query, setDoc, updateDoc, where } from './server/firebase';
+import { authenticateToken, hashPassword, JWT_SECRET, loginRateLimit, sanitizeForFirestore, verifyAndMigratePassword } from './server/auth';
 
 dotenv.config();
 
-// The server is the sole Firestore client.  Credentials must never be shipped to
-// the browser; use Application Default Credentials or FIREBASE_SERVICE_ACCOUNT_JSON.
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
-  : undefined;
-const firebaseApp = getApps().length
-  ? getApps()[0]
-  : initializeApp({ credential: serviceAccount ? cert(serviceAccount) : applicationDefault() });
-const firestoreDb = getFirestore(firebaseApp);
-
-// Compatibility helpers keep the existing repository code explicit while using
-// Firebase Admin (and therefore bypassing client Firestore rules on the server).
-const collection = (db: FirebaseFirestore.Firestore, name: string) => db.collection(name);
-const doc = (db: FirebaseFirestore.Firestore, name: string, id: string) => db.collection(name).doc(id);
-const getDoc = async (ref: FirebaseFirestore.DocumentReference): Promise<any> => {
-  const snapshot = await ref.get();
-  // Preserve the former client-SDK `exists()` call shape while retaining the
-  // Admin SDK as the actual database implementation.
-  return { ref: snapshot.ref, exists: () => snapshot.exists, data: () => snapshot.data() };
-};
-const setDoc = (ref: FirebaseFirestore.DocumentReference, data: any, options?: FirebaseFirestore.SetOptions) => ref.set(data, options);
-const updateDoc = (ref: FirebaseFirestore.DocumentReference, data: any) => ref.update(data);
-const deleteDoc = (ref: FirebaseFirestore.DocumentReference) => ref.delete();
-const getDocs = (ref: FirebaseFirestore.Query) => ref.get();
-const where = (field: string, operator: FirebaseFirestore.WhereFilterOp, value: unknown) => ({ field, operator, value });
-const query = (ref: FirebaseFirestore.Query, ...filters: ReturnType<typeof where>[]) =>
-  filters.reduce((current, filter) => current.where(filter.field, filter.operator, filter.value), ref);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 32) {
-  throw new Error('JWT_SECRET é obrigatório e deve ter no mínimo 32 caracteres.');
-}
 
 const allowedOrigins = (process.env.CORS_ORIGINS || process.env.APP_URL || '')
   .split(',').map(origin => origin.trim()).filter(Boolean);
@@ -169,76 +138,6 @@ interface ApiDelivery {
   historico: any[];
 }
 
-// Legacy hashes are accepted once during login and immediately upgraded to bcrypt.
-// This must only be used for migration; never for storing a new password.
-function legacyHashPassword(pass: string): string {
-  let hash = 0;
-  for (let i = 0; i < pass.length; i++) {
-    const char = pass.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return `sec_hash_${hash.toString(16)}`;
-}
-
-function isLegacyHash(value: string): boolean {
-  return value.startsWith('sec_hash_');
-}
-
-async function verifyAndMigratePassword(user: ApiUser, password: string): Promise<boolean> {
-  const valid = isLegacyHash(user.senhaHash)
-    ? user.senhaHash === legacyHashPassword(password)
-    : await bcrypt.compare(password, user.senhaHash);
-  if (valid && isLegacyHash(user.senhaHash)) {
-    const senhaHash = await bcrypt.hash(password, 12);
-    await updateDoc(doc(firestoreDb, 'usuarios', user.id), { senhaHash });
-    user.senhaHash = senhaHash;
-  }
-  return valid;
-}
-
-async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 12);
-}
-
-// Recursive sanitizer to strip `undefined` fields for Firestore compatibility
-function sanitizeForFirestore<T>(data: T): T {
-  if (data === null || data === undefined) {
-    return data;
-  }
-  if (Array.isArray(data)) {
-    return data.map(item => sanitizeForFirestore(item)) as unknown as T;
-  }
-  if (typeof data === 'object') {
-    const cleaned: Record<string, any> = {};
-    for (const [key, value] of Object.entries(data as Record<string, any>)) {
-      if (value !== undefined) {
-        cleaned[key] = sanitizeForFirestore(value);
-      }
-    }
-    return cleaned as T;
-  }
-  return data;
-}
-
-// Middleware: Authenticate JWT Token
-function authenticateToken(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Token de autenticação não fornecido' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(403).json({ error: 'Token inválido ou expirado' });
-  }
-}
-
 const roleAliases: Record<string, string> = { entregador: 'motorista', driver: 'motorista' };
 const rolePermissions: Record<string, ReadonlySet<string>> = {
   master: new Set(['*']),
@@ -353,20 +252,6 @@ async function requireDeliveryWriteAccess(req: Request, res: Response, delivery:
     return false;
   }
   return true;
-}
-
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
-function loginRateLimit(req: Request, res: Response, next: NextFunction) {
-  const key = `${req.ip}:${String(req.body?.email || '').trim().toLowerCase()}`;
-  const now = Date.now();
-  const current = loginAttempts.get(key);
-  if (!current || current.resetAt <= now) {
-    loginAttempts.set(key, { count: 1, resetAt: now + 15 * 60_000 });
-    return next();
-  }
-  if (current.count >= 8) return res.status(429).json({ error: 'Muitas tentativas. Tente novamente em alguns minutos.' });
-  current.count += 1;
-  next();
 }
 
 // ---------------- API ROUTES ----------------
