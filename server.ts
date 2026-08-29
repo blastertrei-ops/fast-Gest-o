@@ -271,6 +271,33 @@ async function hasDocumentCompanyAccess(req: Request, res: Response, collectionN
   return true;
 }
 
+const tenantFields = new Set(['companyId', 'organizationId', 'tenantId']);
+function withoutTenantFields(data: any): any {
+  return Object.fromEntries(Object.entries(data).filter(([key]) => !tenantFields.has(key)));
+}
+
+async function belongsToCompany(collectionName: string, id: string, companyId: string): Promise<boolean> {
+  const snapshot = await getDoc(doc(firestoreDb, collectionName, id));
+  return snapshot.exists() && snapshot.data()?.companyId === companyId;
+}
+
+async function validateCompanyReferences(res: Response, companyId: string, data: Record<string, unknown>): Promise<boolean> {
+  const references: Array<[string, unknown, string]> = [
+    ['drivers', data.motoristaId, 'motorista'],
+    ['drivers', data.driverId, 'motorista'],
+    ['usuarios', data.entregadorId, 'entregador'],
+    ['usuarios', data.userId, 'usuário vinculado'],
+    ['deliveries', data.deliveryId, 'entrega']
+  ];
+  for (const [collectionName, id, label] of references) {
+    if (typeof id === 'string' && !(await belongsToCompany(collectionName, id, companyId))) {
+      res.status(400).json({ error: `O ${label} informado não pertence a esta empresa.` });
+      return false;
+    }
+  }
+  return true;
+}
+
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 function loginRateLimit(req: Request, res: Response, next: NextFunction) {
   const key = `${req.ip}:${String(req.body?.email || '').trim().toLowerCase()}`;
@@ -771,10 +798,11 @@ app.post('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
   try {
     const { companyId } = req.params;
     const newDeliveryData = req.body;
+    if (!(await validateCompanyReferences(res, companyId, newDeliveryData))) return;
 
     const deliveryId = newDeliveryData.id || ('ent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
     const delivery: ApiDelivery = {
-      ...newDeliveryData,
+      ...withoutTenantFields(newDeliveryData),
       id: deliveryId,
       companyId,
       criadoEm: newDeliveryData.criadoEm || new Date().toISOString(),
@@ -792,16 +820,18 @@ app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'deliveries', id))) return;
-    const updates = req.body;
+    const updates = withoutTenantFields(req.body);
 
     const delRef = doc(firestoreDb, 'deliveries', id);
     const delSnap = await getDoc(delRef);
     if (!delSnap.exists()) {
       return res.status(404).json({ error: 'Entrega não encontrada' });
     }
+    const existing = delSnap.data() as ApiDelivery;
+    if (!(await validateCompanyReferences(res, existing.companyId, updates))) return;
 
     const updated = {
-      ...delSnap.data(),
+      ...existing,
       ...updates,
       atualizadoEm: new Date().toISOString()
     };
@@ -877,10 +907,11 @@ app.post('/api/drivers/:companyId', authenticateToken, async (req, res) => {
   try {
     const { companyId } = req.params;
     const driverData = req.body;
+    if (!(await validateCompanyReferences(res, companyId, driverData))) return;
 
     const driverId = driverData.id || ('drv_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
     const driver: ApiDriver = {
-      ...driverData,
+      ...withoutTenantFields(driverData),
       id: driverId,
       companyId,
       criadoEm: driverData.criadoEm || new Date().toISOString()
@@ -911,7 +942,7 @@ app.post('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
 
     const vehicleId = vehicleData.id || ('vec_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
     const vehicle: ApiVehicle = {
-      ...vehicleData,
+      ...withoutTenantFields(vehicleData),
       id: vehicleId,
       companyId
     };
@@ -970,6 +1001,9 @@ app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
 
     if (!nome || !email || !senha || !role) {
       return res.status(400).json({ error: 'Preencha nome, e-mail, senha e perfil.' });
+    }
+    if (motoristaId && !(await belongsToCompany('drivers', motoristaId, companyId))) {
+      return res.status(400).json({ error: 'O motorista informado não pertence a esta empresa.' });
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
@@ -1059,12 +1093,15 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
   try {
     const { userId, companyId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'usuarios', userId))) return;
-    const updates = req.body;
+    const updates = withoutTenantFields(req.body);
 
     const userRef = doc(firestoreDb, 'usuarios', userId);
     const userSnap = await getDoc(userRef);
     if (!userSnap.exists()) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    if (updates.motoristaId && !(await belongsToCompany('drivers', updates.motoristaId, companyId))) {
+      return res.status(400).json({ error: 'O motorista informado não pertence a esta empresa.' });
     }
 
     if (updates.email) {
@@ -1144,6 +1181,7 @@ app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res)
     const { driverId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'drivers', driverId))) return;
     const updates = req.body;
+    if (!(await validateCompanyReferences(res, req.params.companyId, updates))) return;
 
     const drvRef = doc(firestoreDb, 'drivers', driverId);
     const drvSnap = await getDoc(drvRef);
@@ -1151,7 +1189,7 @@ app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res)
       return res.status(404).json({ error: 'Entregador não encontrado' });
     }
 
-    await updateDoc(drvRef, updates);
+    await updateDoc(drvRef, sanitizeForFirestore(withoutTenantFields(updates)));
     return res.json({ success: true });
   } catch (err) {
     console.error('Erro ao atualizar entregador:', err);
@@ -1189,7 +1227,7 @@ app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, re
       return res.status(404).json({ error: 'Veículo não encontrado' });
     }
 
-    await updateDoc(vecRef, updates);
+    await updateDoc(vecRef, sanitizeForFirestore(withoutTenantFields(updates)));
     return res.json({ success: true });
   } catch (err) {
     console.error('Erro ao atualizar veículo:', err);
@@ -1523,6 +1561,7 @@ app.get('/api/storage-metrics/:companyId', authenticateToken, async (req, res) =
 // API-only data transport used by the browser.  The collection allow-list keeps
 // arbitrary Firestore collections and cross-tenant reads out of the client.
 const tenantCollections = new Set(['deliveries', 'drivers', 'vehicles', 'usuarios', 'clientes', 'auditoria', 'driver_locations', 'route_histories']);
+const tenantWritableCollections = new Set(['deliveries', 'drivers', 'vehicles', 'clientes', 'driver_locations', 'route_histories']);
 app.get('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, async (req, res) => {
   const { companyId, collection: collectionName } = req.params;
   if (!tenantCollections.has(collectionName)) return res.status(404).json({ error: 'Recurso não encontrado.' });
@@ -1532,7 +1571,8 @@ app.get('/api/data/:companyId/:collection', authenticateToken, requireCompanyAcc
 });
 app.put('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, async (req, res) => {
   const { companyId, collection: collectionName, id } = req.params;
-  if (!tenantCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
+  if (!tenantWritableCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
+  if (!(await validateCompanyReferences(res, companyId, req.body))) return;
   const payload = { ...req.body, companyId, atualizadoEm: new Date().toISOString() };
   delete payload.senhaHash;
   await setDoc(doc(firestoreDb, collectionName, id), sanitizeForFirestore(payload), { merge: true });
@@ -1540,7 +1580,8 @@ app.put('/api/data/:companyId/:collection/:id', authenticateToken, requireCompan
 });
 app.post('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, async (req, res) => {
   const { companyId, collection: collectionName } = req.params;
-  if (!tenantCollections.has(collectionName)) return res.status(404).json({ error: 'Recurso não encontrado.' });
+  if (!tenantWritableCollections.has(collectionName)) return res.status(404).json({ error: 'Recurso não encontrado.' });
+  if (!(await validateCompanyReferences(res, companyId, req.body))) return;
   const id = String(req.body?.id || `${collectionName.slice(0, 3)}_${crypto.randomUUID()}`);
   const payload = { ...req.body, id, companyId, criadoEm: req.body?.criadoEm || new Date().toISOString() };
   delete payload.senhaHash;
@@ -1549,7 +1590,7 @@ app.post('/api/data/:companyId/:collection', authenticateToken, requireCompanyAc
 });
 app.delete('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, async (req, res) => {
   const { collection: collectionName, id } = req.params;
-  if (!tenantCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
+  if (!tenantWritableCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
   await deleteDoc(doc(firestoreDb, collectionName, id));
   return res.json({ success: true });
 });
