@@ -28,6 +28,7 @@ import GpsTrackingPanel from './GpsTrackingPanel';
 import ThemeConfigModal from './ThemeConfigModal';
 import Sidebar from './Sidebar';
 import FastGestaoLogo from './FastGestaoLogo';
+import NotificationsPanel from './NotificationsPanel';
 
 interface OperatorPanelProps {
   currentUser: Usuario;
@@ -79,7 +80,7 @@ export default function OperatorPanel({
   onLogout
 }: OperatorPanelProps) {
   // Navigation / Tab States
-  const [activeTab, setActiveTab] = useState<'entregas' | 'historico' | 'colaboradores' | 'formConfig' | 'relatorios' | 'clientes' | 'motoristas' | 'veiculos' | 'rastreamentoGps' | 'configuracoes'>('entregas');
+  const [activeTab, setActiveTab] = useState<'entregas' | 'historico' | 'colaboradores' | 'formConfig' | 'relatorios' | 'clientes' | 'motoristas' | 'veiculos' | 'rastreamentoGps' | 'configuracoes' | 'notificacoes'>('entregas');
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [gpsTargetDeliveryId, setGpsTargetDeliveryId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('todas');
@@ -752,7 +753,7 @@ export default function OperatorPanel({
         companyName={company.nome}
         userName={currentUser.nome}
         userRoleName={currentUser.role === 'admin' ? 'Administrador' : currentUser.role === 'master' ? 'Super Admin' : 'Operador'}
-        unreadNotificationsCount={5}
+        unreadNotificationsCount={Database.getNotifications(company.id).filter((notification: any) => !notification.readBy.includes(currentUser.id)).length}
       />
 
       {/* MAIN CONTENT AREA */}
@@ -1738,6 +1739,7 @@ export default function OperatorPanel({
             initialSelectedDeliveryId={gpsTargetDeliveryId}
           />
         )}
+        {activeTab === 'notificacoes' && <NotificationsPanel companyId={company.id} currentUser={currentUser} />}
 
         {/* TAB: CONFIGURAÇÕES DA EMPRESA */}
         {activeTab === 'configuracoes' && (

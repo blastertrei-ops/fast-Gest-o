@@ -2,7 +2,7 @@ import { Usuario } from '../types';
 
 // Browser data access is API-only. Firebase Admin runs exclusively on the server.
 const tokenKey = 'fast_jwt_token';
-const state: any = { empresas: [], usuarios: [], deliveries: {}, drivers: {}, vehicles: {}, clients: {}, auditLogs: {}, masterAuditLogs: [], customRoles: [], activeSession: null, listeners: new Set<() => void>() };
+const state: any = { empresas: [], usuarios: [], deliveries: {}, drivers: {}, vehicles: {}, clients: {}, notifications: {}, auditLogs: {}, masterAuditLogs: [], customRoles: [], activeSession: null, listeners: new Set<() => void>() };
 const notify = () => state.listeners.forEach((listener: () => void) => listener());
 const auth = () => localStorage.getItem(tokenKey);
 async function api(url: string, init: RequestInit = {}): Promise<any> {
@@ -25,6 +25,9 @@ export const Database: any = {
   async changePassword(_id: string, currentPassword: string, newPassword: string) { try { return await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); } catch (error: any) { return { success: false, error: error.message }; } },
   async updateProfile(_id: string, nome: string, email: string, telefone: string) { try { const data = await api('/api/auth/profile', { method: 'PUT', body: JSON.stringify({ nome, email, telefone }) }); state.activeSession = { ...state.activeSession, ...data.user }; notify(); return data; } catch (error: any) { return { success: false, error: error.message }; } },
   getCompany(id: string) { return state.empresas.find((item: any) => item.id === id) || (state.activeSession?.companyId === id ? { id, nome: '', status: 'ativa', criadoEm: '' } : undefined); }, getDeliveries(id: string) { return list('deliveries', id); }, getDrivers(id: string) { return list('drivers', id); }, getVehicles(id: string) { return list('vehicles', id); }, getClients(id: string) { return list('clients', id); }, getAuditLogs(id: string) { return list('auditLogs', id); }, getUsers(id: string) { return id === 'global' ? state.usuarios : state.usuarios.filter((item: any) => item.companyId === id); }, getAllUsers() { return state.usuarios; }, getCompanies() { return state.empresas; }, getMasterAuditLogs() { return state.masterAuditLogs; }, getCustomRoles(id?: string) { return id ? state.customRoles.filter((item: any) => item.companyId === id || item.companyId === 'global') : state.customRoles; },
+  getNotifications(id: string) { return list('notifications', id); },
+  async loadNotifications(companyId: string) { const data = await api(`/api/notifications/${companyId}`); state.notifications[companyId] = data; notify(); return data; },
+  async markNotificationRead(companyId: string, notificationId: string) { await api(`/api/notifications/${companyId}/${notificationId}/read`, { method: 'PUT' }); const userId = state.activeSession?.id; const item = list('notifications', companyId).find((notification: any) => notification.id === notificationId); if (item && userId && !item.readBy.includes(userId)) item.readBy.push(userId); notify(); },
   async syncCompanyData(companyId: string) {
     const role = state.activeSession?.role;
     const endpoints: any = {

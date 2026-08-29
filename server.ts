@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { collection, deleteDoc, doc, firestoreDb, getDoc, getDocs, query, setDoc, updateDoc, where } from './server/firebase';
 import { authenticateToken, hashPassword, JWT_SECRET, loginRateLimit, sanitizeForFirestore, verifyAndMigratePassword } from './server/auth';
 import { canAssignRole, canonicalRole, hasPermission, withoutTenantFields } from './server/security-policy';
+import { createNotification } from './server/notifications';
 
 dotenv.config();
 
@@ -716,6 +717,7 @@ app.post('/api/deliveries/:companyId', authenticateToken, requirePermission('del
     };
 
     await setDoc(doc(firestoreDb, 'deliveries', deliveryId), delivery);
+    await createNotification(companyId, 'entrega_criada', 'Nova entrega cadastrada', `A entrega NF ${delivery.numeroNF || delivery.id} foi cadastrada.`, deliveryId);
     return res.json({ success: true, delivery });
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao salvar entrega no banco central' });
@@ -751,6 +753,9 @@ app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
     };
 
     await setDoc(delRef, updated, { merge: true });
+    if (updates.status && updates.status !== existing.status) {
+      await createNotification(existing.companyId, 'status_entrega', 'Status de entrega atualizado', `A entrega NF ${existing.numeroNF || existing.id} mudou para ${updates.status}.`, id);
+    }
     return res.json({ success: true, delivery: updated });
   } catch (err) {
     return res.status(500).json({ error: 'Erro ao atualizar entrega' });
@@ -804,6 +809,23 @@ app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, requireP
     console.error('Erro na exclusão de entrega:', err);
     return res.status(500).json({ error: 'Erro ao excluir entrega do banco de dados.' });
   }
+});
+
+app.get('/api/notifications/:companyId', authenticateToken, requirePermission('notifications:read'), async (req, res) => {
+  const { companyId } = req.params;
+  const snapshot = await getDocs(query(collection(firestoreDb, 'notifications'), where('companyId', '==', companyId)));
+  return res.json(snapshot.docs.map(item => item.data()).sort((a: any, b: any) => b.createdAt.localeCompare(a.createdAt)));
+});
+
+app.put('/api/notifications/:companyId/:notificationId/read', authenticateToken, requirePermission('notifications:read'), async (req, res) => {
+  const { companyId, notificationId } = req.params;
+  if (!(await hasDocumentCompanyAccess(req, res, 'notifications', notificationId))) return;
+  const ref = doc(firestoreDb, 'notifications', notificationId);
+  const snapshot = await getDoc(ref);
+  const readBy = new Set<string>(snapshot.data()?.readBy || []);
+  readBy.add(req.user!.userId);
+  await updateDoc(ref, { readBy: [...readBy] });
+  return res.json({ success: true, companyId });
 });
 
 app.get('/api/drivers/:companyId', authenticateToken, requirePermission('drivers:read'), async (req, res) => {

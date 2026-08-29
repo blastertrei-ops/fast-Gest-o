@@ -136,6 +136,17 @@ export interface DeliveryRouteHistory {
   avgSpeedKmH?: number;
 }
 
+export interface AppNotification {
+  id: string;
+  companyId: string;
+  type: 'entrega_criada' | 'status_entrega' | 'alerta';
+  title: string;
+  message: string;
+  deliveryId?: string;
+  createdAt: string;
+  readBy: string[];
+}
+
 export interface OfflineSyncItem {
   id: string;
   companyId: string;

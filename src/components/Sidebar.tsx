@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import BrandLogo from './BrandLogo';
 import { 
   Package, Shield, Sliders, FileText, Navigation, Settings,
-  ChevronLeft, ChevronRight, Menu, X, Building2
+  ChevronLeft, ChevronRight, Menu, X, Building2, Bell
 } from 'lucide-react';
 
 export interface SidebarProps {
@@ -48,6 +48,7 @@ export default function Sidebar({
     { id: 'colaboradores', label: 'Usuários', icon: Shield, show: (userRole === 'admin' || userRole === 'master') && enabledModules.colaboradores !== false },
     { id: 'formConfig', label: 'Formulários', icon: Sliders, show: (userRole === 'admin' || userRole === 'master') && enabledModules.formConfig !== false },
     { id: 'rastreamentoGps', label: 'GPS em Tempo Real', icon: Navigation, show: true },
+    { id: 'notificacoes', label: 'Notificações', icon: Bell, badge: unreadNotificationsCount || undefined, show: true },
     { id: 'relatorios', label: 'Relatórios', icon: FileText, show: (userRole === 'admin' || userRole === 'master') && enabledModules.relatorios !== false },
     { id: 'configuracoes', label: 'Configurações', icon: Settings, show: (userRole === 'admin' || userRole === 'master') }
   ].filter(item => item.show);

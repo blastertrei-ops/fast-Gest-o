@@ -5,6 +5,7 @@ import test from 'node:test';
 const server = await readFile(new URL('../server.ts', import.meta.url), 'utf8');
 const auth = await readFile(new URL('../server/auth.ts', import.meta.url), 'utf8');
 const policy = await readFile(new URL('../server/security-policy.ts', import.meta.url), 'utf8');
+const notifications = await readFile(new URL('../server/notifications.ts', import.meta.url), 'utf8');
 const client = await readFile(new URL('../src/lib/db.ts', import.meta.url), 'utf8');
 const rules = await readFile(new URL('../firestore.rules', import.meta.url), 'utf8');
 
@@ -43,4 +44,10 @@ test('RBAC is enforced by the API, including driver scope and role assignment', 
 test('the browser cannot use Firestore directly and Firestore rules are closed', () => {
   assert.doesNotMatch(client, /firebase\/firestore|onSnapshot|setDoc\(/);
   assert.match(rules, /allow read, write: if false/);
+});
+
+test('notifications are created server-side and remain tenant-scoped', () => {
+  assert.match(notifications, /companyId/);
+  assert.match(server, /\/api\/notifications\/:companyId/);
+  assert.match(server, /requirePermission\('notifications:read'\)/);
 });
