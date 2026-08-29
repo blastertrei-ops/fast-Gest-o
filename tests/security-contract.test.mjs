@@ -19,6 +19,15 @@ test('master routes and company routes have centralized authorization guards', (
   assert.match(server, /app\.use\('\/api\/:resource\/:companyId', authenticateToken, requireCompanyAccess\)/);
 });
 
+test('tenant identity and cross-company references cannot be supplied by a client', () => {
+  assert.match(server, /function withoutTenantFields/);
+  assert.match(server, /companyId', 'organizationId', 'tenantId'/);
+  assert.match(server, /function validateCompanyReferences/);
+  assert.match(server, /O \$\{label\} informado não pertence a esta empresa/);
+  assert.match(server, /tenantWritableCollections/);
+  assert.doesNotMatch(server, /const tenantWritableCollections = new Set\([^)]*'usuarios'/);
+});
+
 test('the browser cannot use Firestore directly and Firestore rules are closed', () => {
   assert.doesNotMatch(client, /firebase\/firestore|onSnapshot|setDoc\(/);
   assert.match(rules, /allow read, write: if false/);
