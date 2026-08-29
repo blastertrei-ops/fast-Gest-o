@@ -6,6 +6,7 @@ import {
 import { DriverLocationState, DeliveryRouteHistory, Entrega, Motorista } from '../types';
 import { Database } from '../lib/db';
 import { calculateDistanceKm, calculateEta } from '../lib/gpsTracker';
+import GpsRouteMap from './GpsRouteMap';
 
 interface GpsTrackingPanelProps {
   companyId: string;
@@ -370,6 +371,11 @@ export default function GpsTrackingPanel({
 
             {selectedDeliveryRoute && selectedDeliveryRoute.points?.length > 0 ? (
               <div className="space-y-4">
+                <GpsRouteMap
+                  points={selectedDeliveryRoute.points}
+                  currentLocation={driverLocations.find(location => location.driverId === selectedDeliveryRoute.driverId) || null}
+                  destination={selectedDelivery.endereco}
+                />
                 {/* ROUTE SUMMARY STATS */}
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
