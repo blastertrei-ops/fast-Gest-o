@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Database, hashPassword } from './lib/db';
+import { Database } from './lib/db';
 import { Entrega, Motorista, Veiculo, Usuario, Empresa, Cliente, RegistroAuditoria, UserRole } from './types';
 import OperatorPanel from './components/OperatorPanel';
 import DriverPanel from './components/DriverPanel';
