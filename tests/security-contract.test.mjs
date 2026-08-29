@@ -51,3 +51,13 @@ test('notifications are created server-side and remain tenant-scoped', () => {
   assert.match(server, /\/api\/notifications\/:companyId/);
   assert.match(server, /requirePermission\('notifications:read'\)/);
 });
+
+test('GPS positions and route histories use dedicated tenant-scoped endpoints', () => {
+  assert.match(server, /app\.put\('\/api\/gps\/:companyId\/drivers\/:driverId'/);
+  assert.match(server, /app\.post\('\/api\/gps\/:companyId\/deliveries\/:deliveryId\/points'/);
+  assert.match(server, /Entregadores só podem transmitir a própria localização/);
+  assert.match(server, /previousPoints\.slice\(-1_999\)/);
+  assert.doesNotMatch(server, /tenantWritableCollections = new Set\([^)]*'driver_locations'/);
+  assert.match(client, /\/api\/gps\/\$\{d\.companyId\}\/drivers\/\$\{d\.driverId\}/);
+  assert.match(client, /\/api\/gps\/\$\{d\.companyId\}\/deliveries\/\$\{deliveryId\}\/points/);
+});

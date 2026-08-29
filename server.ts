@@ -219,6 +219,47 @@ async function requireDeliveryWriteAccess(req: Request, res: Response, delivery:
   return true;
 }
 
+function isGpsCoordinate(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
+function gpsPointFromRequest(data: Record<string, unknown>) {
+  if (!isGpsCoordinate(data.latitude, -90, 90) || !isGpsCoordinate(data.longitude, -180, 180)) return null;
+  const events = new Set(['aceito', 'em_rota', 'periodic', 'parado', 'entregue', 'nao_entregue']);
+  return {
+    latitude: data.latitude,
+    longitude: data.longitude,
+    accuracy: typeof data.accuracy === 'number' ? Math.max(0, Math.min(data.accuracy, 10_000)) : undefined,
+    speed: typeof data.speed === 'number' ? Math.max(0, Math.min(data.speed, 300)) : undefined,
+    address: typeof data.address === 'string' ? data.address.slice(0, 160) : undefined,
+    event: typeof data.event === 'string' && events.has(data.event) ? data.event : 'periodic',
+    // The server records receipt time so a device cannot make an old point look current.
+    timestamp: new Date().toISOString()
+  };
+}
+
+async function requireDriverLocationAccess(req: Request, res: Response, driverId: string): Promise<ApiDriver | null> {
+  const snapshot = await getDoc(doc(firestoreDb, 'drivers', driverId));
+  if (!snapshot.exists()) {
+    res.status(404).json({ error: 'Entregador não encontrado.' });
+    return null;
+  }
+  const driver = snapshot.data() as ApiDriver;
+  if (driver.companyId !== req.user!.companyId && req.user!.role !== 'master') {
+    res.status(403).json({ error: 'Acesso negado para este entregador.' });
+    return null;
+  }
+  if (canonicalRole(req.user!.role) === 'motorista') {
+    const userSnapshot = await getDoc(doc(firestoreDb, 'usuarios', req.user!.userId));
+    const user = userSnapshot.data() as ApiUser | undefined;
+    if (driver.userId !== req.user!.userId && user?.motoristaId !== driverId) {
+      res.status(403).json({ error: 'Entregadores só podem transmitir a própria localização.' });
+      return null;
+    }
+  }
+  return driver;
+}
+
 // ---------------- API ROUTES ----------------
 
 app.get('/api/health', (req, res) => {
@@ -1502,19 +1543,92 @@ app.get('/api/storage-metrics/:companyId', authenticateToken, requirePermission(
   }
 });
 
+// GPS uses dedicated endpoints rather than the generic data API.  This gives each
+// driver one current-location document and keeps the route tied to its delivery.
+app.get('/api/gps/:companyId/drivers', authenticateToken, requireCompanyAccess, requirePermission('locations:read'), async (req, res) => {
+  const snapshot = await getDocs(query(collection(firestoreDb, 'driver_locations'), where('companyId', '==', req.params.companyId)));
+  return res.json(snapshot.docs.map(item => item.data()));
+});
+
+app.put('/api/gps/:companyId/drivers/:driverId', authenticateToken, requireCompanyAccess, requirePermission('locations:write'), async (req, res) => {
+  const { companyId, driverId } = req.params;
+  const driver = await requireDriverLocationAccess(req, res, driverId);
+  if (!driver) return;
+  const point = gpsPointFromRequest(req.body || {});
+  if (!point) return res.status(400).json({ error: 'Coordenadas de GPS inválidas.' });
+
+  const payload = {
+    id: driverId,
+    driverId,
+    driverName: driver.nome,
+    companyId,
+    ...point,
+    lastUpdated: point.timestamp,
+    isOnline: true,
+    isMoving: (point.speed || 0) > 3,
+    currentDeliveryId: typeof req.body?.currentDeliveryId === 'string' ? req.body.currentDeliveryId : undefined,
+    heading: typeof req.body?.heading === 'number' ? Math.max(0, Math.min(req.body.heading, 360)) : undefined
+  };
+  if (payload.currentDeliveryId) {
+    const deliverySnapshot = await getDoc(doc(firestoreDb, 'deliveries', payload.currentDeliveryId));
+    if (!deliverySnapshot.exists() || deliverySnapshot.data()?.companyId !== companyId) {
+      return res.status(400).json({ error: 'A entrega informada não pertence a esta empresa.' });
+    }
+    if (!(await requireDeliveryWriteAccess(req, res, deliverySnapshot.data() as ApiDelivery))) return;
+  }
+  await setDoc(doc(firestoreDb, 'driver_locations', driverId), sanitizeForFirestore(payload), { merge: true });
+  return res.json({ success: true, location: payload });
+});
+
+app.get('/api/gps/:companyId/deliveries/:deliveryId/route', authenticateToken, requireCompanyAccess, requirePermission('routes:read'), async (req, res) => {
+  const { companyId, deliveryId } = req.params;
+  if (!(await belongsToCompany('deliveries', deliveryId, companyId))) return res.status(404).json({ error: 'Entrega não encontrada.' });
+  const snapshot = await getDoc(doc(firestoreDb, 'route_histories', deliveryId));
+  return res.json(snapshot.exists() ? snapshot.data() : null);
+});
+
+app.post('/api/gps/:companyId/deliveries/:deliveryId/points', authenticateToken, requireCompanyAccess, requirePermission('routes:write'), async (req, res) => {
+  const { companyId, deliveryId } = req.params;
+  const deliverySnapshot = await getDoc(doc(firestoreDb, 'deliveries', deliveryId));
+  if (!deliverySnapshot.exists() || deliverySnapshot.data()?.companyId !== companyId) return res.status(404).json({ error: 'Entrega não encontrada.' });
+  const delivery = deliverySnapshot.data() as ApiDelivery;
+  if (!(await requireDeliveryWriteAccess(req, res, delivery))) return;
+  const point = gpsPointFromRequest(req.body || {});
+  if (!point) return res.status(400).json({ error: 'Coordenadas de GPS inválidas.' });
+
+  const routeRef = doc(firestoreDb, 'route_histories', deliveryId);
+  const existing = await getDoc(routeRef);
+  const previousPoints = Array.isArray(existing.data()?.points) ? existing.data()!.points : [];
+  // Keep a bounded history per delivery to make GPS storage predictable.
+  const points = [...previousPoints.slice(-1_999), { ...point, deliveryId }];
+  const driverId = delivery.motoristaId || (await getDoc(doc(firestoreDb, 'usuarios', req.user!.userId))).data()?.motoristaId || req.user!.userId;
+  const driverSnapshot = await getDoc(doc(firestoreDb, 'drivers', driverId));
+  const driverName = driverSnapshot.exists() ? (driverSnapshot.data() as ApiDriver).nome : undefined;
+  const payload = {
+    id: deliveryId,
+    deliveryId,
+    driverId,
+    driverName,
+    companyId,
+    points,
+    startedAt: existing.data()?.startedAt || point.timestamp,
+    updatedAt: point.timestamp
+  };
+  await setDoc(routeRef, sanitizeForFirestore(payload), { merge: true });
+  return res.status(201).json({ success: true, pointCount: points.length });
+});
+
 // API-only data transport used by the browser.  The collection allow-list keeps
 // arbitrary Firestore collections and cross-tenant reads out of the client.
-const tenantCollections = new Set(['deliveries', 'drivers', 'vehicles', 'usuarios', 'clientes', 'auditoria', 'driver_locations', 'route_histories']);
-const tenantWritableCollections = new Set(['deliveries', 'drivers', 'vehicles', 'clientes', 'driver_locations', 'route_histories']);
+const tenantCollections = new Set(['deliveries', 'drivers', 'vehicles', 'usuarios', 'clientes', 'auditoria']);
+const tenantWritableCollections = new Set(['deliveries', 'drivers', 'vehicles', 'clientes']);
 const collectionPermission: Record<string, { read: string; write?: string }> = {
   deliveries: { read: 'deliveries:read', write: 'deliveries:write' },
   drivers: { read: 'drivers:read', write: 'drivers:write' },
   vehicles: { read: 'vehicles:read', write: 'vehicles:write' },
   usuarios: { read: 'users:read' },
   clientes: { read: 'clients:read', write: 'clients:write' },
-  auditoria: { read: 'audit:read' },
-  driver_locations: { read: 'locations:read', write: 'locations:write' },
-  route_histories: { read: 'routes:read', write: 'routes:write' }
+  auditoria: { read: 'audit:read' }
 };
 function requireCollectionPermission(action: 'read' | 'write') {
   return (req: Request, res: Response, next: NextFunction) => {
