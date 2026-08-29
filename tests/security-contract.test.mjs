@@ -28,6 +28,16 @@ test('tenant identity and cross-company references cannot be supplied by a clien
   assert.doesNotMatch(server, /const tenantWritableCollections = new Set\([^)]*'usuarios'/);
 });
 
+test('RBAC is enforced by the API, including driver scope and role assignment', () => {
+  assert.match(server, /const rolePermissions/);
+  assert.match(server, /function requirePermission/);
+  assert.match(server, /function canAssignRole/);
+  assert.match(server, /app\.post\('\/api\/users\/:companyId', authenticateToken, requirePermission\('users:write'\)/);
+  assert.match(server, /app\.delete\('\/api\/deliveries\/:companyId\/:deliveryId', authenticateToken, requirePermission\('deliveries:delete'\)/);
+  assert.match(server, /Entregadores só podem atualizar entregas atribuídas a si/);
+  assert.match(server, /Você não pode atribuir este perfil/);
+});
+
 test('the browser cannot use Firestore directly and Firestore rules are closed', () => {
   assert.doesNotMatch(client, /firebase\/firestore|onSnapshot|setDoc\(/);
   assert.match(rules, /allow read, write: if false/);

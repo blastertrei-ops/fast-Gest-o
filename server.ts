@@ -239,9 +239,50 @@ function authenticateToken(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+const roleAliases: Record<string, string> = { entregador: 'motorista', driver: 'motorista' };
+const rolePermissions: Record<string, ReadonlySet<string>> = {
+  master: new Set(['*']),
+  admin: new Set([
+    'company:read', 'deliveries:read', 'deliveries:write', 'deliveries:delete',
+    'drivers:read', 'drivers:write', 'vehicles:read', 'vehicles:write',
+    'users:read', 'users:write', 'clients:read', 'clients:write', 'clients:delete',
+    'audit:read', 'storage:read', 'locations:read', 'locations:write', 'routes:read', 'routes:write'
+  ]),
+  operador: new Set([
+    'company:read', 'deliveries:read', 'deliveries:write', 'drivers:read',
+    'vehicles:read', 'clients:read', 'clients:write', 'locations:read', 'routes:read'
+  ]),
+  motorista: new Set(['company:read', 'deliveries:read', 'deliveries:own-write', 'locations:write', 'routes:write'])
+};
+
+function canonicalRole(role: string): string {
+  return roleAliases[role] || role;
+}
+
+function hasPermission(role: string, permission: string): boolean {
+  const permissions = rolePermissions[canonicalRole(role)];
+  return Boolean(permissions?.has('*') || permissions?.has(permission));
+}
+
+function canAssignRole(actorRole: string, targetRole: string): boolean {
+  const actor = canonicalRole(actorRole);
+  const target = canonicalRole(targetRole);
+  if (actor === 'master') return ['master', 'admin', 'operador', 'motorista'].includes(target);
+  return actor === 'admin' && ['admin', 'operador', 'motorista'].includes(target);
+}
+
+function requirePermission(permission: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user || !hasPermission(req.user.role, permission)) {
+      return res.status(403).json({ error: 'Você não tem permissão para esta ação.' });
+    }
+    next();
+  };
+}
+
 function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user || !roles.map(canonicalRole).includes(canonicalRole(req.user.role))) {
       return res.status(403).json({ error: 'Você não tem permissão para esta ação.' });
     }
     next();
@@ -294,6 +335,22 @@ async function validateCompanyReferences(res: Response, companyId: string, data:
       res.status(400).json({ error: `O ${label} informado não pertence a esta empresa.` });
       return false;
     }
+  }
+  return true;
+}
+
+async function canDriverAccessDelivery(userId: string, delivery: ApiDelivery): Promise<boolean> {
+  const snapshot = await getDoc(doc(firestoreDb, 'usuarios', userId));
+  if (!snapshot.exists()) return false;
+  const user = snapshot.data() as ApiUser;
+  return delivery.entregadorId === userId || delivery.motoristaId === user.motoristaId;
+}
+
+async function requireDeliveryWriteAccess(req: Request, res: Response, delivery: ApiDelivery): Promise<boolean> {
+  if (canonicalRole(req.user?.role || '') !== 'motorista') return true;
+  if (!(await canDriverAccessDelivery(req.user!.userId, delivery))) {
+    res.status(403).json({ error: 'Entregadores só podem atualizar entregas atribuídas a si.' });
+    return false;
   }
   return true;
 }
@@ -755,7 +812,7 @@ app.delete('/api/master/custom-roles/:id', authenticateToken, requireRole('maste
 app.use('/api/:resource/:companyId', authenticateToken, requireCompanyAccess);
 
 // Multi-tenant Company, Users, Drivers, Vehicles & Deliveries REST Routes
-app.get('/api/company/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/company/:companyId', authenticateToken, requirePermission('company:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const snap = await getDoc(doc(firestoreDb, 'empresas', companyId));
@@ -766,14 +823,14 @@ app.get('/api/company/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/deliveries/:companyId', authenticateToken, requirePermission('deliveries:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'deliveries'), where('companyId', '==', companyId));
     const snap = await getDocs(q);
     let deliveries = snap.docs.map(d => d.data() as ApiDelivery);
 
-    if (req.user?.role === 'motorista') {
+    if (canonicalRole(req.user?.role || '') === 'motorista') {
       const userSnap = await getDoc(doc(firestoreDb, 'usuarios', req.user.userId));
       const userDoc = userSnap.exists() ? userSnap.data() as ApiUser : undefined;
       const driverIdFromUser = userDoc?.motoristaId;
@@ -794,7 +851,7 @@ app.get('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/deliveries/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/deliveries/:companyId', authenticateToken, requirePermission('deliveries:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const newDeliveryData = req.body;
@@ -828,6 +885,14 @@ app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Entrega não encontrada' });
     }
     const existing = delSnap.data() as ApiDelivery;
+    if (!hasPermission(req.user!.role, 'deliveries:write') && !(await requireDeliveryWriteAccess(req, res, existing))) return;
+    if (!hasPermission(req.user!.role, 'deliveries:write') && !hasPermission(req.user!.role, 'deliveries:own-write')) {
+      return res.status(403).json({ error: 'Você não tem permissão para atualizar entregas.' });
+    }
+    if (canonicalRole(req.user!.role) === 'motorista') {
+      const allowed = new Set(['status', 'comprovante', 'historico', 'atualizadoEm']);
+      for (const key of Object.keys(updates)) if (!allowed.has(key)) delete updates[key];
+    }
     if (!(await validateCompanyReferences(res, existing.companyId, updates))) return;
 
     const updated = {
@@ -843,14 +908,14 @@ app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, async (req, res) => {
+app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, requirePermission('deliveries:delete'), async (req, res) => {
   try {
     const { companyId, deliveryId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'deliveries', deliveryId))) return;
     const { deleteFiles, motivo } = req.body || {};
 
     // Only Admin and Operators can delete deliveries (drivers/motoristas cannot)
-    if (req.user?.role === 'motorista') {
+    if (canonicalRole(req.user?.role || '') === 'motorista') {
       return res.status(403).json({ error: 'Entregadores não têm permissão para excluir entregas.' });
     }
 
@@ -892,7 +957,7 @@ app.delete('/api/deliveries/:companyId/:deliveryId', authenticateToken, async (r
   }
 });
 
-app.get('/api/drivers/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/drivers/:companyId', authenticateToken, requirePermission('drivers:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'drivers'), where('companyId', '==', companyId));
@@ -903,7 +968,7 @@ app.get('/api/drivers/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/drivers/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/drivers/:companyId', authenticateToken, requirePermission('drivers:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const driverData = req.body;
@@ -924,7 +989,7 @@ app.post('/api/drivers/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/vehicles/:companyId', authenticateToken, requirePermission('vehicles:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'vehicles'), where('companyId', '==', companyId));
@@ -935,7 +1000,7 @@ app.get('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/vehicles/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/vehicles/:companyId', authenticateToken, requirePermission('vehicles:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const vehicleData = req.body;
@@ -977,7 +1042,7 @@ function getPermissionsForRole(role: string) {
   };
 }
 
-app.get('/api/users/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/users/:companyId', authenticateToken, requirePermission('users:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = companyId === 'global'
@@ -994,13 +1059,16 @@ app.get('/api/users/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/users/:companyId', authenticateToken, requirePermission('users:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const { nome, email, senha, role, motoristaId, telefone, ativo = true } = req.body;
 
     if (!nome || !email || !senha || !role) {
       return res.status(400).json({ error: 'Preencha nome, e-mail, senha e perfil.' });
+    }
+    if (!canAssignRole(req.user!.role, role)) {
+      return res.status(403).json({ error: 'Você não pode atribuir este perfil.' });
     }
     if (motoristaId && !(await belongsToCompany('drivers', motoristaId, companyId))) {
       return res.status(400).json({ error: 'O motorista informado não pertence a esta empresa.' });
@@ -1089,11 +1157,16 @@ app.post('/api/users/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
+app.put('/api/users/:companyId/:userId', authenticateToken, requirePermission('users:write'), async (req, res) => {
   try {
     const { userId, companyId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'usuarios', userId))) return;
     const updates = withoutTenantFields(req.body);
+    if (updates.role && !canAssignRole(req.user!.role, updates.role)) {
+      return res.status(403).json({ error: 'Você não pode atribuir este perfil.' });
+    }
+    delete updates.permissoesCustomizadas;
+    delete updates.senhaHash;
 
     const userRef = doc(firestoreDb, 'usuarios', userId);
     const userSnap = await getDoc(userRef);
@@ -1142,7 +1215,7 @@ app.put('/api/users/:companyId/:userId', authenticateToken, async (req, res) => 
   }
 });
 
-app.delete('/api/users/:companyId/:userId', authenticateToken, async (req, res) => {
+app.delete('/api/users/:companyId/:userId', authenticateToken, requirePermission('users:write'), async (req, res) => {
   try {
     const { userId, companyId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'usuarios', userId))) return;
@@ -1176,7 +1249,7 @@ app.delete('/api/users/:companyId/:userId', authenticateToken, async (req, res) 
   }
 });
 
-app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res) => {
+app.put('/api/drivers/:companyId/:driverId', authenticateToken, requirePermission('drivers:write'), async (req, res) => {
   try {
     const { driverId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'drivers', driverId))) return;
@@ -1197,7 +1270,7 @@ app.put('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res)
   }
 });
 
-app.delete('/api/drivers/:companyId/:driverId', authenticateToken, async (req, res) => {
+app.delete('/api/drivers/:companyId/:driverId', authenticateToken, requirePermission('drivers:write'), async (req, res) => {
   try {
     const { driverId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'drivers', driverId))) return;
@@ -1215,7 +1288,7 @@ app.delete('/api/drivers/:companyId/:driverId', authenticateToken, async (req, r
   }
 });
 
-app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, res) => {
+app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, requirePermission('vehicles:write'), async (req, res) => {
   try {
     const { vehicleId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'vehicles', vehicleId))) return;
@@ -1235,7 +1308,7 @@ app.put('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, re
   }
 });
 
-app.delete('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req, res) => {
+app.delete('/api/vehicles/:companyId/:vehicleId', authenticateToken, requirePermission('vehicles:write'), async (req, res) => {
   try {
     const { vehicleId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'vehicles', vehicleId))) return;
@@ -1254,7 +1327,7 @@ app.delete('/api/vehicles/:companyId/:vehicleId', authenticateToken, async (req,
 });
 
 // CLIENTS REST ROUTES
-app.get('/api/clients/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/clients/:companyId', authenticateToken, requirePermission('clients:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const q = query(collection(firestoreDb, 'clientes'), where('companyId', '==', companyId));
@@ -1265,7 +1338,7 @@ app.get('/api/clients/:companyId', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/clients/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/clients/:companyId', authenticateToken, requirePermission('clients:write'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const clientData = req.body;
@@ -1287,7 +1360,7 @@ app.post('/api/clients/:companyId', authenticateToken, async (req, res) => {
 });
 
 // SINGLE CLIENT DELETION WITH SECURITY & ACTIVE DELIVERIES BLOCKING
-app.delete('/api/clients/:companyId/:clientId', authenticateToken, async (req, res) => {
+app.delete('/api/clients/:companyId/:clientId', authenticateToken, requirePermission('clients:delete'), async (req, res) => {
   try {
     const { companyId, clientId } = req.params;
     if (!(await hasDocumentCompanyAccess(req, res, 'clientes', clientId))) return;
@@ -1355,7 +1428,7 @@ app.delete('/api/clients/:companyId/:clientId', authenticateToken, async (req, r
 });
 
 // BULK CLIENT CLEANUP FOR ADMINS
-app.post('/api/admin/bulk-cleanup-clients/:companyId', authenticateToken, async (req, res) => {
+app.post('/api/admin/bulk-cleanup-clients/:companyId', authenticateToken, requirePermission('clients:delete'), async (req, res) => {
   try {
     const { companyId } = req.params;
     const { startDate, endDate, mode } = req.body; // mode: 'only_without_deliveries' | 'all_with_history'
@@ -1450,7 +1523,7 @@ app.post('/api/admin/bulk-cleanup-clients/:companyId', authenticateToken, async 
 });
 
 // GET AUDIT TRAIL
-app.get('/api/audit/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/audit/:companyId', authenticateToken, requirePermission('audit:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
     if (req.user?.role !== 'admin' && req.user?.role !== 'master') {
@@ -1467,7 +1540,7 @@ app.get('/api/audit/:companyId', authenticateToken, async (req, res) => {
 });
 
 // GET STORAGE MONITOR METRICS
-app.get('/api/storage-metrics/:companyId', authenticateToken, async (req, res) => {
+app.get('/api/storage-metrics/:companyId', authenticateToken, requirePermission('storage:read'), async (req, res) => {
   try {
     const { companyId } = req.params;
 
@@ -1562,14 +1635,33 @@ app.get('/api/storage-metrics/:companyId', authenticateToken, async (req, res) =
 // arbitrary Firestore collections and cross-tenant reads out of the client.
 const tenantCollections = new Set(['deliveries', 'drivers', 'vehicles', 'usuarios', 'clientes', 'auditoria', 'driver_locations', 'route_histories']);
 const tenantWritableCollections = new Set(['deliveries', 'drivers', 'vehicles', 'clientes', 'driver_locations', 'route_histories']);
-app.get('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, async (req, res) => {
+const collectionPermission: Record<string, { read: string; write?: string }> = {
+  deliveries: { read: 'deliveries:read', write: 'deliveries:write' },
+  drivers: { read: 'drivers:read', write: 'drivers:write' },
+  vehicles: { read: 'vehicles:read', write: 'vehicles:write' },
+  usuarios: { read: 'users:read' },
+  clientes: { read: 'clients:read', write: 'clients:write' },
+  auditoria: { read: 'audit:read' },
+  driver_locations: { read: 'locations:read', write: 'locations:write' },
+  route_histories: { read: 'routes:read', write: 'routes:write' }
+};
+function requireCollectionPermission(action: 'read' | 'write') {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const permission = collectionPermission[req.params.collection]?.[action];
+    if (!permission || !req.user || !hasPermission(req.user.role, permission)) {
+      return res.status(403).json({ error: 'Você não tem permissão para este recurso.' });
+    }
+    next();
+  };
+}
+app.get('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, requireCollectionPermission('read'), async (req, res) => {
   const { companyId, collection: collectionName } = req.params;
   if (!tenantCollections.has(collectionName)) return res.status(404).json({ error: 'Recurso não encontrado.' });
   const snapshot = await getDocs(query(collection(firestoreDb, collectionName), where('companyId', '==', companyId)));
   const records = snapshot.docs.map(item => item.data());
   return res.json(collectionName === 'usuarios' ? records.map(({ senhaHash, ...user }: any) => user) : records);
 });
-app.put('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, async (req, res) => {
+app.put('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, requireCollectionPermission('write'), async (req, res) => {
   const { companyId, collection: collectionName, id } = req.params;
   if (!tenantWritableCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
   if (!(await validateCompanyReferences(res, companyId, req.body))) return;
@@ -1578,7 +1670,7 @@ app.put('/api/data/:companyId/:collection/:id', authenticateToken, requireCompan
   await setDoc(doc(firestoreDb, collectionName, id), sanitizeForFirestore(payload), { merge: true });
   return res.json({ success: true });
 });
-app.post('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, async (req, res) => {
+app.post('/api/data/:companyId/:collection', authenticateToken, requireCompanyAccess, requireCollectionPermission('write'), async (req, res) => {
   const { companyId, collection: collectionName } = req.params;
   if (!tenantWritableCollections.has(collectionName)) return res.status(404).json({ error: 'Recurso não encontrado.' });
   if (!(await validateCompanyReferences(res, companyId, req.body))) return;
@@ -1588,7 +1680,7 @@ app.post('/api/data/:companyId/:collection', authenticateToken, requireCompanyAc
   await setDoc(doc(firestoreDb, collectionName, id), sanitizeForFirestore(payload), { merge: true });
   return res.json({ success: true, data: payload });
 });
-app.delete('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, async (req, res) => {
+app.delete('/api/data/:companyId/:collection/:id', authenticateToken, requireCompanyAccess, requireCollectionPermission('write'), async (req, res) => {
   const { collection: collectionName, id } = req.params;
   if (!tenantWritableCollections.has(collectionName) || !(await hasDocumentCompanyAccess(req, res, collectionName, id))) return;
   await deleteDoc(doc(firestoreDb, collectionName, id));

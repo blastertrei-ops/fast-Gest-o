@@ -25,7 +25,30 @@ export const Database: any = {
   async changePassword(_id: string, currentPassword: string, newPassword: string) { try { return await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }); } catch (error: any) { return { success: false, error: error.message }; } },
   async updateProfile(_id: string, nome: string, email: string, telefone: string) { try { const data = await api('/api/auth/profile', { method: 'PUT', body: JSON.stringify({ nome, email, telefone }) }); state.activeSession = { ...state.activeSession, ...data.user }; notify(); return data; } catch (error: any) { return { success: false, error: error.message }; } },
   getCompany(id: string) { return state.empresas.find((item: any) => item.id === id) || (state.activeSession?.companyId === id ? { id, nome: '', status: 'ativa', criadoEm: '' } : undefined); }, getDeliveries(id: string) { return list('deliveries', id); }, getDrivers(id: string) { return list('drivers', id); }, getVehicles(id: string) { return list('vehicles', id); }, getClients(id: string) { return list('clients', id); }, getAuditLogs(id: string) { return list('auditLogs', id); }, getUsers(id: string) { return id === 'global' ? state.usuarios : state.usuarios.filter((item: any) => item.companyId === id); }, getAllUsers() { return state.usuarios; }, getCompanies() { return state.empresas; }, getMasterAuditLogs() { return state.masterAuditLogs; }, getCustomRoles(id?: string) { return id ? state.customRoles.filter((item: any) => item.companyId === id || item.companyId === 'global') : state.customRoles; },
-  async syncCompanyData(companyId: string) { const maps: any = { deliveries: 'deliveries', drivers: 'drivers', vehicles: 'vehicles', usuarios: 'usuarios', clients: 'clientes', auditLogs: 'auditoria' }; await Promise.all(Object.entries(maps).map(async ([key, col]) => { const data = await api(`/api/data/${companyId}/${col}`); if (key === 'usuarios') state.usuarios = [...state.usuarios.filter((u: any) => u.companyId !== companyId), ...data]; else state[key][companyId] = data; })); const company = await api(`/api/company/${companyId}`); state.empresas = [...state.empresas.filter((item: any) => item.id !== companyId), company]; notify(); },
+  async syncCompanyData(companyId: string) {
+    const role = state.activeSession?.role;
+    const endpoints: any = {
+      deliveries: `/api/deliveries/${companyId}`,
+      drivers: `/api/drivers/${companyId}`,
+      vehicles: `/api/vehicles/${companyId}`,
+      usuarios: `/api/users/${companyId}`,
+      clients: `/api/clients/${companyId}`,
+      auditLogs: `/api/audit/${companyId}`
+    };
+    const keys = role === 'motorista' || role === 'entregador' || role === 'driver'
+      ? ['deliveries']
+      : role === 'operador'
+        ? ['deliveries', 'drivers', 'vehicles', 'clients']
+        : Object.keys(endpoints);
+    await Promise.all(keys.map(async key => {
+      const data = await api(endpoints[key]);
+      if (key === 'usuarios') state.usuarios = [...state.usuarios.filter((u: any) => u.companyId !== companyId), ...data];
+      else state[key][companyId] = data;
+    }));
+    const company = await api(`/api/company/${companyId}`);
+    state.empresas = [...state.empresas.filter((item: any) => item.id !== companyId), company];
+    notify();
+  },
   async saveSingleDelivery(companyId: string, data: any) { const out = await api(`/api/deliveries/${companyId}`, { method: 'POST', body: JSON.stringify(data) }); state.deliveries[companyId] = [out.delivery, ...list('deliveries', companyId).filter((x: any) => x.id !== out.delivery.id)]; notify(); return out.delivery; },
   saveDeliveries(id: string, data: any[]) { state.deliveries[id] = data; notify(); data.forEach(item => generic(id, 'deliveries', item).catch(console.error)); }, saveDrivers(id: string, data: any[]) { state.drivers[id] = data; notify(); data.forEach(item => generic(id, 'drivers', item).catch(console.error)); }, saveVehicles(id: string, data: any[]) { state.vehicles[id] = data; notify(); data.forEach(item => generic(id, 'vehicles', item).catch(console.error)); }, saveUsers(id: string, data: any[]) { data.forEach(item => api(`/api/users/${id}/${item.id}`, { method: 'PUT', body: JSON.stringify(item) }).catch(console.error)); },
   async createDriver(id: string, data: any) { try { return await api(`/api/drivers/${id}`, { method: 'POST', body: JSON.stringify(data) }); } catch (error: any) { return { success: false, error: error.message }; } }, async createUser(id: string, data: any) { try { return await api(`/api/users/${id}`, { method: 'POST', body: JSON.stringify(data) }); } catch (error: any) { return { success: false, error: error.message }; } },
