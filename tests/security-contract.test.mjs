@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const server = await readFile(new URL('../server.ts', import.meta.url), 'utf8');
 const auth = await readFile(new URL('../server/auth.ts', import.meta.url), 'utf8');
+const policy = await readFile(new URL('../server/security-policy.ts', import.meta.url), 'utf8');
 const client = await readFile(new URL('../src/lib/db.ts', import.meta.url), 'utf8');
 const rules = await readFile(new URL('../firestore.rules', import.meta.url), 'utf8');
 
@@ -21,8 +22,8 @@ test('master routes and company routes have centralized authorization guards', (
 });
 
 test('tenant identity and cross-company references cannot be supplied by a client', () => {
-  assert.match(server, /function withoutTenantFields/);
-  assert.match(server, /companyId', 'organizationId', 'tenantId'/);
+  assert.match(policy, /withoutTenantFields/);
+  assert.match(policy, /companyId', 'organizationId', 'tenantId'/);
   assert.match(server, /function validateCompanyReferences/);
   assert.match(server, /O \$\{label\} informado não pertence a esta empresa/);
   assert.match(server, /tenantWritableCollections/);
@@ -30,9 +31,9 @@ test('tenant identity and cross-company references cannot be supplied by a clien
 });
 
 test('RBAC is enforced by the API, including driver scope and role assignment', () => {
-  assert.match(server, /const rolePermissions/);
+  assert.match(policy, /const permissions/);
   assert.match(server, /function requirePermission/);
-  assert.match(server, /function canAssignRole/);
+  assert.match(policy, /function canAssignRole/);
   assert.match(server, /app\.post\('\/api\/users\/:companyId', authenticateToken, requirePermission\('users:write'\)/);
   assert.match(server, /app\.delete\('\/api\/deliveries\/:companyId\/:deliveryId', authenticateToken, requirePermission\('deliveries:delete'\)/);
   assert.match(server, /Entregadores só podem atualizar entregas atribuídas a si/);
