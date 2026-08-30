@@ -9,6 +9,7 @@ interface LiveDriversMapProps {
   deliveries: Entrega[];
   focusedDriverId?: string | null;
   onSelectDriver: (driverId: string) => void;
+  className?: string;
 }
 
 function FitLocations({ positions, focusedPosition }: { positions: LatLngExpression[]; focusedPosition?: LatLngExpression }) {
@@ -21,14 +22,14 @@ function FitLocations({ positions, focusedPosition }: { positions: LatLngExpress
   return null;
 }
 
-export default function LiveDriversMap({ locations, deliveries, focusedDriverId, onSelectDriver }: LiveDriversMapProps) {
+export default function LiveDriversMap({ locations, deliveries, focusedDriverId, onSelectDriver, className = 'h-[360px]' }: LiveDriversMapProps) {
   const positions = locations.map(location => [location.latitude, location.longitude] as LatLngExpression);
   const focused = locations.find(location => location.driverId === focusedDriverId);
   const focusedPosition = focused ? [focused.latitude, focused.longitude] as LatLngExpression : undefined;
   const center = focusedPosition || positions[0] || [-23.5505, -46.6333] as LatLngExpression;
 
   return (
-    <div className="h-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-xs" aria-label="Mapa ao vivo dos entregadores">
+    <div className={`${className} overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-xs`} aria-label="Mapa ao vivo dos entregadores">
       <MapContainer center={center} zoom={13} scrollWheelZoom className="h-full w-full">
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
