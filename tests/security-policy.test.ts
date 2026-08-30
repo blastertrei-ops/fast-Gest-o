@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { canAssignRole, canonicalRole, hasPermission, withoutTenantFields } from '../server/security-policy';
+import { canTransitionDelivery, hasValidDeliveryProof } from '../server/delivery-policy';
 
 test('normalizes all delivery-driver role aliases', () => {
   assert.equal(canonicalRole('entregador'), 'motorista');
@@ -23,4 +24,13 @@ test('prevents role escalation by administrators', () => {
 
 test('removes tenant-controlled fields from client payloads', () => {
   assert.deepEqual(withoutTenantFields({ companyId: 'other', organizationId: 'other', tenantId: 'other', nome: 'Registro' }), { nome: 'Registro' });
+});
+
+test('allows only valid operational delivery transitions and requires proof', () => {
+  assert.equal(canTransitionDelivery('aguardando_motorista', 'em_rota'), true);
+  assert.equal(canTransitionDelivery('em_rota', 'entregue'), true);
+  assert.equal(canTransitionDelivery('entregue', 'em_rota'), false);
+  assert.equal(canTransitionDelivery('venda_realizada', 'entregue'), false);
+  assert.equal(hasValidDeliveryProof({ assinaturaUrl: 'data:image/png;base64,x', recebedorNome: 'Maria', dataHoraEntrega: '2026-08-29T12:00:00.000Z' }), true);
+  assert.equal(hasValidDeliveryProof({ recebedorNome: 'Maria', dataHoraEntrega: '2026-08-29T12:00:00.000Z' }), false);
 });

@@ -1,7 +1,25 @@
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import dotenv from 'dotenv';
 
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) : undefined;
+dotenv.config();
+
+function loadServiceAccount() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!raw) return undefined;
+  try {
+    const credentials = JSON.parse(raw);
+    if (!credentials.project_id || !credentials.client_email || !credentials.private_key) throw new Error('campos obrigatórios ausentes');
+    return credentials;
+  } catch {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON deve conter o JSON completo e válido da conta de serviço.');
+  }
+}
+
+const serviceAccount = loadServiceAccount();
+if (process.env.NODE_ENV === 'production' && !serviceAccount) {
+  throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON é obrigatório em produção.');
+}
 const app = getApps().length ? getApps()[0] : initializeApp({ credential: serviceAccount ? cert(serviceAccount) : applicationDefault() });
 // Some Firebase projects use a named Firestore database instead of `(default)`.
 // Leave the variable empty only when the application intentionally uses `(default)`.

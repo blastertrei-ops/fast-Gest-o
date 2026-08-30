@@ -68,6 +68,8 @@ test('GPS positions and route histories use dedicated tenant-scoped endpoints', 
 test('Firebase Admin can target the existing named Firestore database', () => {
   assert.match(firebase, /FIRESTORE_DATABASE_ID/);
   assert.match(firebase, /getFirestore\(app, databaseId\)/);
+  assert.match(firebase, /FIREBASE_SERVICE_ACCOUNT_JSON deve conter o JSON completo e válido/);
+  assert.match(server, /\/api\/health\/ready/);
 });
 
 test('driver proof waits for the scoped API update before leaving confirmation', () => {
