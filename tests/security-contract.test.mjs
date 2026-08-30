@@ -8,6 +8,8 @@ const firebase = await readFile(new URL('../server/firebase.ts', import.meta.url
 const policy = await readFile(new URL('../server/security-policy.ts', import.meta.url), 'utf8');
 const notifications = await readFile(new URL('../server/notifications.ts', import.meta.url), 'utf8');
 const client = await readFile(new URL('../src/lib/db.ts', import.meta.url), 'utf8');
+const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const driverPanel = await readFile(new URL('../src/components/DriverPanel.tsx', import.meta.url), 'utf8');
 const rules = await readFile(new URL('../firestore.rules', import.meta.url), 'utf8');
 
 test('password migration accepts only a legacy hash once and upgrades to bcrypt', () => {
@@ -66,4 +68,11 @@ test('GPS positions and route histories use dedicated tenant-scoped endpoints', 
 test('Firebase Admin can target the existing named Firestore database', () => {
   assert.match(firebase, /FIRESTORE_DATABASE_ID/);
   assert.match(firebase, /getFirestore\(app, databaseId\)/);
+});
+
+test('driver proof waits for the scoped API update before leaving confirmation', () => {
+  assert.match(app, /const saved = await Database\.updateDelivery\(id, updates\)/);
+  assert.match(app, /if \(!saved\) return false/);
+  assert.match(driverPanel, /const saved = await onUpdateDelivery\(selectedDelivery\.id, updates\)/);
+  assert.match(driverPanel, /Salvando confirmação/);
 });

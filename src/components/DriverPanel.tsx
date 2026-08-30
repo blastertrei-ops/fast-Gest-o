@@ -20,7 +20,7 @@ interface DriverPanelProps {
   deliveries: Entrega[];
   drivers: Motorista[];
   vehicles: Veiculo[];
-  onUpdateDelivery: (id: string, updates: Partial<Entrega>) => void;
+  onUpdateDelivery: (id: string, updates: Partial<Entrega>) => Promise<boolean>;
   onLogout: () => void;
 }
 
@@ -43,6 +43,7 @@ export default function DriverPanel({
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [isCapturingGPS, setIsCapturingGPS] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const [gpsCoordinates, setGpsCoordinates] = useState<{ lat: number; lng: number } | null>(null);
 
   // Delivery failure inputs
@@ -231,7 +232,7 @@ export default function DriverPanel({
   };
 
   // 4. ACTION: CONFIRM DELIVERED WITH ALL 7 REQUIRED PROOF FIELDS AT ONCE
-  const handleConfirmDelivered = () => {
+  const handleConfirmDelivered = async () => {
     if (!selectedDelivery || !currentDriver) return;
     if (!recebedorNome.trim()) {
       alert('Por favor informe o nome de quem recebeu a mercadoria!');
@@ -275,8 +276,15 @@ export default function DriverPanel({
       historico: [...(selectedDelivery.historico || []), historyItem]
     };
 
-    // Database persistence before UI state update
-    onUpdateDelivery(selectedDelivery.id, updates);
+    // Wait for the server before leaving the proof screen. This prevents a
+    // rejected delivery update from looking complete and reopening later.
+    setIsFinalizing(true);
+    const saved = await onUpdateDelivery(selectedDelivery.id, updates);
+    setIsFinalizing(false);
+    if (!saved) {
+      alert('Não foi possível finalizar a entrega. Verifique sua conexão e tente novamente.');
+      return;
+    }
     
     if (!isOnline) {
       setPendingSyncCount(prev => prev + 1);
@@ -830,11 +838,11 @@ export default function DriverPanel({
           <div className="bg-white p-4 border-t border-slate-200/80 sticky bottom-0 mt-auto z-10 shadow-lg">
             <button
               onClick={handleConfirmDelivered}
-              disabled={!signatureDataUrl || !recebedorNome.trim()}
+              disabled={!signatureDataUrl || !recebedorNome.trim() || isFinalizing}
               className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:pointer-events-none text-white font-extrabold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-2 min-h-[48px]"
             >
               <FileCheck className="w-5 h-5" />
-              Finalizar e Confirmar Entrega
+              {isFinalizing ? 'Salvando confirmação...' : 'Finalizar e Confirmar Entrega'}
             </button>
           </div>
         </div>
