@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Navigation, MapPin, Gauge, Clock, RefreshCw, Search, 
-  User, Truck, Route, ArrowRight, ExternalLink, Focus, Wifi, WifiOff, AlertTriangle
+  User, Truck, Route, ArrowRight, ExternalLink, Focus, Wifi, WifiOff, AlertTriangle, Users, Radio, Activity, LocateFixed
 } from 'lucide-react';
 import { DriverLocationState, DeliveryRouteHistory, Entrega, Motorista } from '../types';
 import { Database } from '../lib/db';
@@ -28,6 +28,7 @@ export default function GpsTrackingPanel({
   const [focusedDriverId, setFocusedDriverId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [fleetFilter, setFleetFilter] = useState<'all' | 'online' | 'route' | 'offline'>('all');
 
   const loadLocations = async () => {
     setLoading(true);
@@ -104,6 +105,18 @@ export default function GpsTrackingPanel({
     loc.address?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const visibleLocations = filteredLocations.filter(location => {
+    const signal = getDriverSignalStatus(location).label;
+    if (fleetFilter === 'online') return signal === 'Online';
+    if (fleetFilter === 'offline') return signal !== 'Online';
+    if (fleetFilter === 'route') return Boolean(location.currentDeliveryId || deliveries.some(delivery => delivery.motoristaId === location.driverId && delivery.status === 'em_rota'));
+    return true;
+  });
+  const onlineCount = driverLocations.filter(location => getDriverSignalStatus(location).label === 'Online').length;
+  const routeCount = driverLocations.filter(location => location.currentDeliveryId || deliveries.some(delivery => delivery.motoristaId === location.driverId && delivery.status === 'em_rota')).length;
+  const focusedLocation = driverLocations.find(location => location.driverId === focusedDriverId);
+  const focusedDelivery = focusedLocation && deliveries.find(delivery => delivery.id === focusedLocation.currentDeliveryId || (delivery.motoristaId === focusedLocation.driverId && delivery.status === 'em_rota'));
+
   const activeDeliveriesWithGps = deliveries.filter(d => 
     d.status === 'em_rota' || d.status === 'aguardando_motorista' || d.status === 'entregue'
   );
@@ -144,20 +157,48 @@ export default function GpsTrackingPanel({
         </div>
       </div>
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between px-1">
-          <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-amber-500" />
-            Mapa ao vivo dos entregadores
-          </h4>
-          <span className="text-[11px] text-slate-500">Clique em um ponto para localizar o entregador</span>
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Entregadores no mapa', value: driverLocations.length, icon: Users, tone: 'text-blue-600 bg-blue-50 border-blue-100' },
+          { label: 'Sinal online', value: onlineCount, icon: Radio, tone: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+          { label: 'Em rota agora', value: routeCount, icon: Navigation, tone: 'text-amber-600 bg-amber-50 border-amber-100' },
+          { label: 'Sem sinal', value: Math.max(0, driverLocations.length - onlineCount), icon: WifiOff, tone: 'text-slate-600 bg-slate-100 border-slate-200' }
+        ].map(metric => {
+          const MetricIcon = metric.icon;
+          return <div key={metric.label} className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex items-center gap-3">
+            <span className={`w-10 h-10 rounded-xl border flex items-center justify-center ${metric.tone}`}><MetricIcon className="w-5 h-5" /></span>
+            <div><p className="text-xl font-black text-slate-900 leading-none">{metric.value}</p><p className="text-[10px] text-slate-500 font-bold uppercase tracking-wide mt-1">{metric.label}</p></div>
+          </div>;
+        })}
+      </section>
+
+      <section className="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-4 items-stretch">
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+            <div><h4 className="font-black text-slate-900 text-sm flex items-center gap-2"><MapPin className="w-4 h-4 text-amber-500" />Mapa operacional ao vivo</h4><p className="text-[11px] text-slate-500 mt-0.5">Clique em um marcador para acompanhar o entregador.</p></div>
+            <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+              {([['all', 'Todos'], ['online', 'Online'], ['route', 'Em rota'], ['offline', 'Sem sinal']] as const).map(([value, label]) => <button key={value} onClick={() => setFleetFilter(value)} className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-colors ${fleetFilter === value ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}>{label}</button>)}
+            </div>
+          </div>
+          <LiveDriversMap locations={visibleLocations} deliveries={deliveries} focusedDriverId={focusedDriverId} onSelectDriver={setFocusedDriverId} className="h-[520px]" />
         </div>
-        <LiveDriversMap
-          locations={filteredLocations}
-          deliveries={deliveries}
-          focusedDriverId={focusedDriverId}
-          onSelectDriver={setFocusedDriverId}
-        />
+
+        <aside className="bg-slate-950 rounded-2xl p-3 shadow-lg border border-slate-800 flex flex-col min-h-[520px]">
+          <div className="p-2.5 border-b border-slate-800 flex items-center justify-between"><div><p className="text-white font-black text-sm">Central da frota</p><p className="text-slate-400 text-[10px] mt-0.5">{visibleLocations.length} entregador(es) exibido(s)</p></div><Activity className="w-5 h-5 text-amber-400" /></div>
+          <div className="flex-1 overflow-y-auto py-2 space-y-1.5 pr-1">
+            {visibleLocations.map(location => {
+              const signal = getDriverSignalStatus(location);
+              const delivery = deliveries.find(item => item.id === location.currentDeliveryId || (item.motoristaId === location.driverId && item.status === 'em_rota'));
+              const selected = location.driverId === focusedDriverId;
+              return <button key={location.driverId} onClick={() => setFocusedDriverId(location.driverId)} className={`w-full text-left rounded-xl p-3 transition-colors ${selected ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 hover:bg-slate-800 text-white'}`}>
+                <div className="flex items-center justify-between gap-2"><span className="font-bold text-xs truncate">{location.driverName}</span><span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${selected ? 'bg-slate-950/15' : signal.label === 'Online' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-700 text-slate-300'}`}>{signal.label}</span></div>
+                <div className={`flex items-center justify-between mt-2 text-[10px] ${selected ? 'text-slate-800' : 'text-slate-400'}`}><span>{delivery ? `NF #${delivery.numeroNF}` : 'Sem entrega em rota'}</span><span className="font-mono">{location.speed || 0} km/h</span></div>
+              </button>;
+            })}
+            {visibleLocations.length === 0 && <div className="py-14 text-center text-slate-500 text-xs"><WifiOff className="w-7 h-7 mx-auto mb-2" />Nenhum sinal para este filtro.</div>}
+          </div>
+          {focusedLocation && <div className="mt-2 p-3 rounded-xl bg-white text-slate-900"><div className="flex items-center gap-2"><LocateFixed className="w-4 h-4 text-amber-600" /><div className="min-w-0"><p className="font-black text-xs truncate">{focusedLocation.driverName}</p><p className="text-[10px] text-slate-500 truncate">{focusedLocation.address || 'Localização recebida'}</p></div></div>{focusedDelivery && <button onClick={() => viewRouteHistory(focusedDelivery)} className="mt-3 w-full rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] py-2 flex justify-center items-center gap-1"><Route className="w-3.5 h-3.5" />Ver rota da entrega</button>}</div>}
+        </aside>
       </section>
 
       {/* ACTIVE DRIVERS LOCATION CARDS */}
