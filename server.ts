@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { collection, deleteDoc, doc, firestoreDb, getDoc, getDocs, query, setDoc, updateDoc, where } from './server/firebase';
 import { authenticateToken, hashPassword, JWT_SECRET, loginRateLimit, sanitizeForFirestore, verifyAndMigratePassword } from './server/auth';
 import { canAssignRole, canonicalRole, hasPermission, withoutTenantFields } from './server/security-policy';
+import { canTransitionDelivery, hasValidDeliveryProof } from './server/delivery-policy';
 import { createNotification } from './server/notifications';
 
 dotenv.config();
@@ -263,7 +264,19 @@ async function requireDriverLocationAccess(req: Request, res: Response, driverId
 // ---------------- API ROUTES ----------------
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), service: 'fast-gestao' });
+});
+
+// Used by the deployment platform to distinguish a running process from one
+// that can actually reach the configured Firestore database.
+app.get('/api/health/ready', async (req, res) => {
+  try {
+    await getDoc(doc(firestoreDb, '_system', 'healthcheck'));
+    return res.json({ status: 'ready', timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('Health readiness check failed:', error);
+    return res.status(503).json({ status: 'unavailable' });
+  }
 });
 
 // Auth API Routes (Central Firestore Authentication)
@@ -787,9 +800,38 @@ app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
     }
     if (!(await validateCompanyReferences(res, existing.companyId, updates))) return;
 
+    if (typeof updates.status === 'string') {
+      if (updates.status === 'entregue' && existing.status === 'entregue') {
+        // A retry after a slow connection must not create a second proof/history.
+        return res.json({ success: true, delivery: existing, idempotent: true });
+      }
+      if (!canTransitionDelivery(existing.status, updates.status)) {
+        return res.status(409).json({ error: `Transição de status inválida: ${existing.status} → ${updates.status}.` });
+      }
+      if (updates.status === 'entregue' && !hasValidDeliveryProof(updates.comprovante)) {
+        return res.status(400).json({ error: 'A entrega só pode ser finalizada com assinatura, recebedor e data de confirmação.' });
+      }
+    }
+
+    const suppliedHistory = Array.isArray(updates.historico) ? updates.historico : [];
+    delete updates.historico;
+    const history = [...(existing.historico || [])];
+    if (typeof updates.status === 'string' && updates.status !== existing.status) {
+      const providedReason = suppliedHistory.at(-1)?.motivo;
+      history.push({
+        id: `h_${crypto.randomUUID()}`,
+        statusAnterior: existing.status,
+        statusNovo: updates.status,
+        alteradoPor: req.user!.email,
+        alteradoEm: new Date().toISOString(),
+        motivo: typeof providedReason === 'string' ? providedReason.slice(0, 500) : undefined
+      });
+    }
+
     const updated = {
       ...existing,
       ...updates,
+      historico: history,
       atualizadoEm: new Date().toISOString()
     };
 

@@ -1,9 +1,11 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 import { NextFunction, Request, Response } from 'express';
 import { doc, firestoreDb, updateDoc } from './firebase';
 import { ApiUser, JwtPayload } from './types';
 
+dotenv.config();
 export const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.length < 32) throw new Error('JWT_SECRET é obrigatório e deve ter no mínimo 32 caracteres.');
 
