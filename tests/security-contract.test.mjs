@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const server = await readFile(new URL('../server.ts', import.meta.url), 'utf8');
 const auth = await readFile(new URL('../server/auth.ts', import.meta.url), 'utf8');
+const firebase = await readFile(new URL('../server/firebase.ts', import.meta.url), 'utf8');
 const policy = await readFile(new URL('../server/security-policy.ts', import.meta.url), 'utf8');
 const notifications = await readFile(new URL('../server/notifications.ts', import.meta.url), 'utf8');
 const client = await readFile(new URL('../src/lib/db.ts', import.meta.url), 'utf8');
@@ -60,4 +61,9 @@ test('GPS positions and route histories use dedicated tenant-scoped endpoints', 
   assert.doesNotMatch(server, /tenantWritableCollections = new Set\([^)]*'driver_locations'/);
   assert.match(client, /\/api\/gps\/\$\{d\.companyId\}\/drivers\/\$\{d\.driverId\}/);
   assert.match(client, /\/api\/gps\/\$\{d\.companyId\}\/deliveries\/\$\{deliveryId\}\/points/);
+});
+
+test('Firebase Admin can target the existing named Firestore database', () => {
+  assert.match(firebase, /FIRESTORE_DATABASE_ID/);
+  assert.match(firebase, /getFirestore\(app, databaseId\)/);
 });
