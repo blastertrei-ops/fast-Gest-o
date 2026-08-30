@@ -8,6 +8,7 @@ import {
   FileCheck, Printer, User, Phone, MapPin, Package, DollarSign, 
   Calendar, Clock, AlertCircle, FileText, CheckCircle2 
 } from 'lucide-react';
+import ProtectedImage from './ProtectedImage';
 import { Entrega, Empresa, Motorista, FormaPagamento, StatusPagamento } from '../types';
 import { getDeliveryFormConfig, getFieldValue, generateA4ReceiptHtml } from '../utils/pdfGenerator';
 
@@ -240,7 +241,7 @@ export default function DynamicDeliveryDetails({
                 Assinatura Digital
               </span>
               <div className="rounded-xl border border-emerald-200 bg-white p-2 flex items-center justify-center min-h-[80px]">
-                <img 
+                <ProtectedImage 
                   src={delivery.comprovante.assinaturaUrl} 
                   alt="Assinatura"
                   className="h-16 max-w-full object-contain"
