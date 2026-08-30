@@ -278,8 +278,8 @@ export default function App() {
     await Database.saveSingleDelivery(currentUser.companyId, fullDelivery);
   };
 
-  const handleUpdateDelivery = (id: string, updates: Partial<Entrega>) => {
-    if (!currentUser || !currentCompany) return;
+  const handleUpdateDelivery = async (id: string, updates: Partial<Entrega>): Promise<boolean> => {
+    if (!currentUser || !currentCompany) return false;
 
     const updated = deliveries.map(d => {
       if (d.id === id) {
@@ -317,8 +317,19 @@ export default function App() {
       }
       return d;
     });
+    const isDriverSession = ['entregador', 'driver', 'motorista'].includes(currentUser.role);
+    if (isDriverSession) {
+      // Drivers cannot use the generic bulk-data endpoint. Persist their assigned
+      // delivery through the scoped API before changing the visible state.
+      const saved = await Database.updateDelivery(id, updates);
+      if (!saved) return false;
+      setDeliveries(updated);
+      return true;
+    }
+
     setDeliveries(updated);
     Database.saveDeliveries(currentUser.companyId, updated);
+    return true;
   };
 
   const handleDeleteDelivery = async (id: string, options?: { deleteFiles?: boolean; motivo?: string }) => {
