@@ -78,3 +78,9 @@ test('driver proof waits for the scoped API update before leaving confirmation',
   assert.match(driverPanel, /const saved = await onUpdateDelivery\(selectedDelivery\.id, updates\)/);
   assert.match(driverPanel, /Salvando confirmação/);
 });
+
+test('delivery proof images can move to protected persistent storage', () => {
+  assert.match(server, /const uploadsDirectory = process\.env\.UPLOADS_DIR/);
+  assert.match(server, /app\.get\('\/api\/proofs\/:companyId\/:deliveryId\/:filename'/);
+  assert.match(server, /storeProofImages\(existing\.companyId, id, updates\.comprovante\)/);
+});

@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
@@ -16,6 +17,7 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const uploadsDirectory = process.env.UPLOADS_DIR?.trim();
 
 const allowedOrigins = (process.env.CORS_ORIGINS || process.env.APP_URL || '')
   .split(',').map(origin => origin.trim()).filter(Boolean);
@@ -218,6 +220,32 @@ async function requireDeliveryWriteAccess(req: Request, res: Response, delivery:
     return false;
   }
   return true;
+}
+
+const proofImageFields = ['assinaturaUrl', 'fotoProdutoUrl', 'fotoFachadaUrl'] as const;
+const proofImagePattern = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/;
+
+async function storeProofImages(companyId: string, deliveryId: string, proof: Record<string, any>) {
+  if (!uploadsDirectory) return proof;
+  const saved = { ...proof };
+  const safeCompanyId = companyId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeDeliveryId = deliveryId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const directory = path.join(uploadsDirectory, safeCompanyId, safeDeliveryId);
+  await mkdir(directory, { recursive: true });
+
+  for (const field of proofImageFields) {
+    const value = proof[field];
+    if (typeof value !== 'string') continue;
+    const match = value.match(proofImagePattern);
+    if (!match) continue;
+    const extension = match[1] === 'jpeg' ? 'jpg' : match[1];
+    const bytes = Buffer.from(match[2], 'base64');
+    if (bytes.length > 5 * 1024 * 1024) throw new Error('Arquivo de comprovante excede o limite de 5 MB.');
+    const filename = `${field}-${crypto.randomUUID()}.${extension}`;
+    await writeFile(path.join(directory, filename), bytes, { mode: 0o600 });
+    saved[field] = `/api/proofs/${encodeURIComponent(companyId)}/${encodeURIComponent(deliveryId)}/${filename}`;
+  }
+  return saved;
 }
 
 function isGpsCoordinate(value: unknown, minimum: number, maximum: number): value is number {
@@ -715,6 +743,31 @@ app.delete('/api/master/custom-roles/:id', authenticateToken, requireRole('maste
 // operate on the company embedded in their signed token.
 app.use('/api/:resource/:companyId', authenticateToken, requireCompanyAccess);
 
+app.get('/api/proofs/:companyId/:deliveryId/:filename', authenticateToken, requireCompanyAccess, async (req, res) => {
+  if (!uploadsDirectory) return res.status(404).json({ error: 'Armazenamento de comprovantes não configurado.' });
+  const { companyId, deliveryId, filename } = req.params;
+  if (!/^[a-zA-Z0-9_-]+\.(png|jpg|webp)$/.test(filename)) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+  const deliverySnapshot = await getDoc(doc(firestoreDb, 'deliveries', deliveryId));
+  if (!deliverySnapshot.exists() || deliverySnapshot.data()?.companyId !== companyId) return res.status(404).json({ error: 'Entrega não encontrada.' });
+  const delivery = deliverySnapshot.data() as ApiDelivery;
+  if (canonicalRole(req.user!.role) === 'motorista' && !(await canDriverAccessDelivery(req.user!.userId, delivery))) {
+    return res.status(403).json({ error: 'Acesso negado ao comprovante.' });
+  }
+  const proof = delivery.comprovante || {};
+  const expectedPath = `/api/proofs/${encodeURIComponent(companyId)}/${encodeURIComponent(deliveryId)}/${filename}`;
+  if (!proofImageFields.some(field => proof[field] === expectedPath)) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+  const filePath = path.join(uploadsDirectory, companyId.replace(/[^a-zA-Z0-9_-]/g, '_'), deliveryId.replace(/[^a-zA-Z0-9_-]/g, '_'), filename);
+  try {
+    const content = await readFile(filePath);
+    const mimeType = filename.endsWith('.png') ? 'image/png' : filename.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.send(content);
+  } catch {
+    return res.status(404).json({ error: 'Arquivo não encontrado.' });
+  }
+});
+
 // Multi-tenant Company, Users, Drivers, Vehicles & Deliveries REST Routes
 app.get('/api/company/:companyId', authenticateToken, requirePermission('company:read'), async (req, res) => {
   try {
@@ -811,6 +864,10 @@ app.put('/api/deliveries/:id', authenticateToken, async (req, res) => {
       if (updates.status === 'entregue' && !hasValidDeliveryProof(updates.comprovante)) {
         return res.status(400).json({ error: 'A entrega só pode ser finalizada com assinatura, recebedor e data de confirmação.' });
       }
+    }
+
+    if (updates.comprovante && typeof updates.comprovante === 'object') {
+      updates.comprovante = await storeProofImages(existing.companyId, id, updates.comprovante);
     }
 
     const suppliedHistory = Array.isArray(updates.historico) ? updates.historico : [];
