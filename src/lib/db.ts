@@ -52,6 +52,20 @@ export const Database: any = {
     state.empresas = [...state.empresas.filter((item: any) => item.id !== companyId), company];
     notify();
   },
+  async syncMasterData() {
+    const [companyResult, users, auditResult, roleResult] = await Promise.all([
+      api('/api/master/companies'),
+      api('/api/users/global'),
+      api('/api/master/audit-logs'),
+      api('/api/master/custom-roles')
+    ]);
+    state.empresas = companyResult.companies || [];
+    state.usuarios = users || [];
+    state.masterAuditLogs = auditResult.logs || [];
+    state.customRoles = roleResult.roles || [];
+    notify();
+    return { companies: state.empresas.length, users: state.usuarios.length };
+  },
   async saveSingleDelivery(companyId: string, data: any) { const out = await api(`/api/deliveries/${companyId}`, { method: 'POST', body: JSON.stringify(data) }); state.deliveries[companyId] = [out.delivery, ...list('deliveries', companyId).filter((x: any) => x.id !== out.delivery.id)]; notify(); return out.delivery; },
   saveDeliveries(id: string, data: any[]) { state.deliveries[id] = data; notify(); data.forEach(item => generic(id, 'deliveries', item).catch(console.error)); }, saveDrivers(id: string, data: any[]) { state.drivers[id] = data; notify(); data.forEach(item => generic(id, 'drivers', item).catch(console.error)); }, saveVehicles(id: string, data: any[]) { state.vehicles[id] = data; notify(); data.forEach(item => generic(id, 'vehicles', item).catch(console.error)); }, saveUsers(id: string, data: any[]) { data.forEach(item => api(`/api/users/${id}/${item.id}`, { method: 'PUT', body: JSON.stringify(item) }).catch(console.error)); },
   async createDriver(id: string, data: any) { try { return await api(`/api/drivers/${id}`, { method: 'POST', body: JSON.stringify(data) }); } catch (error: any) { return { success: false, error: error.message }; } }, async createUser(id: string, data: any) { try { return await api(`/api/users/${id}`, { method: 'POST', body: JSON.stringify(data) }); } catch (error: any) { return { success: false, error: error.message }; } },

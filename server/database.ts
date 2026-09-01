@@ -87,7 +87,7 @@ export async function getDocs(ref: any): Promise<any> {
     params.set(column, `eq.${String(filter.value)}`);
   }
   const rows = await (await request(`${tableFor(ref.name)}?${params.toString()}`)).json();
-  return { docs: rows.map((row: any) => ({ id: row.id, data: () => fromRow(row) })) };
+  return { empty: rows.length === 0, docs: rows.map((row: any) => ({ id: row.id, data: () => fromRow(row) })) };
 }
 
 export async function setDoc(ref: any, data: any, options?: { merge?: boolean }) {
