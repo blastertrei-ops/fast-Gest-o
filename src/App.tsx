@@ -80,6 +80,9 @@ export default function App() {
     const session = Database.getCurrentSession();
     if (session) {
       setCurrentUser(session);
+      if (session.role === 'master') {
+        Database.syncMasterData().catch(console.error);
+      }
       const comp = Database.getCompany(session.companyId);
       if (comp) {
         setCurrentCompany(comp);
@@ -137,6 +140,9 @@ export default function App() {
     const res = await Database.login(loginEmail, loginPassword);
     if (res.success && res.user) {
       setCurrentUser(res.user);
+      if (res.user.role === 'master') {
+        await Database.syncMasterData();
+      }
       const comp = Database.getCompany(res.user.companyId);
       if (comp) {
         setCurrentCompany(comp);
