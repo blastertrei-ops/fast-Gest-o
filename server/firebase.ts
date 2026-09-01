@@ -17,7 +17,7 @@ function loadServiceAccount() {
 }
 
 const serviceAccount = loadServiceAccount();
-if (process.env.NODE_ENV === 'production' && !serviceAccount) {
+if (process.env.NODE_ENV === 'production' && !serviceAccount && process.env.DATA_BACKEND !== 'supabase') {
   throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON é obrigatório em produção.');
 }
 const app = getApps().length ? getApps()[0] : initializeApp({ credential: serviceAccount ? cert(serviceAccount) : applicationDefault() });

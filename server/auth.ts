@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { NextFunction, Request, Response } from 'express';
-import { doc, firestoreDb, updateDoc } from './firebase';
+import { doc, firestoreDb, updateDoc } from './database';
 import { ApiUser, JwtPayload } from './types';
 
 dotenv.config();
