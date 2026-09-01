@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
-import { collection, deleteDoc, doc, firestoreDb, getDoc, getDocs, query, setDoc, updateDoc, where } from './server/firebase';
+import { collection, databaseReady, deleteDoc, doc, firestoreDb, getDoc, getDocs, query, setDoc, updateDoc, where } from './server/database';
 import { authenticateToken, hashPassword, JWT_SECRET, loginRateLimit, sanitizeForFirestore, verifyAndMigratePassword } from './server/auth';
 import { canAssignRole, canonicalRole, hasPermission, withoutTenantFields } from './server/security-policy';
 import { canTransitionDelivery, hasValidDeliveryProof } from './server/delivery-policy';
@@ -299,7 +299,7 @@ app.get('/api/health', (req, res) => {
 // that can actually reach the configured Firestore database.
 app.get('/api/health/ready', async (req, res) => {
   try {
-    await getDoc(doc(firestoreDb, '_system', 'healthcheck'));
+    await databaseReady();
     return res.json({ status: 'ready', timestamp: new Date().toISOString() });
   } catch (error) {
     console.error('Health readiness check failed:', error);
