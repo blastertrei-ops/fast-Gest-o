@@ -45,6 +45,20 @@ function recordFor(target: string, source: Record<string, unknown>) {
   }
 }
 
+function legacyCompany(id: string) {
+  return {
+    id,
+    name: `Empresa legada sem cadastro (${id})`,
+    status: 'suspensa',
+    payload: { id, migration: { legacyCompanyPlaceholder: true, reason: 'Registros apontavam para esta empresa, mas ela não existia em empresas no Firestore.' } }
+  };
+}
+
+function referencedCompanyIds(collections: ExportFile['collections']) {
+  const sources = ['usuarios', 'drivers', 'vehicles', 'clientes', 'deliveries', 'driver_locations', 'route_histories', 'notifications', 'auditoria', 'custom_roles'];
+  return new Set(sources.flatMap((name) => (collections[name] ?? []).map((item) => text(item.companyId)).filter((id): id is string => Boolean(id))));
+}
+
 async function upsert(table: string, records: ReturnType<typeof recordFor>[]) {
   for (let index = 0; index < records.length; index += batchSize) {
     const response = await fetch(`${url}/rest/v1/${table}?on_conflict=id`, {
@@ -60,7 +74,13 @@ async function main() {
   if (!url || !key) throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórias. Use-as apenas localmente ou em ambiente seguro.');
   const input = argument('--input');
   const exported = JSON.parse(await readFile(input, 'utf8')) as ExportFile;
+  const companies = exported.collections.empresas ?? [];
+  const knownCompanies = new Set(companies.map((item) => String(item.id)));
+  const missingCompanies = [...referencedCompanyIds(exported.collections)].filter((id) => !knownCompanies.has(id));
+  await upsert('companies', [...companies.map((item) => recordFor('companies', item)), ...missingCompanies.map(legacyCompany)]);
+  console.log(`empresas -> companies: ${companies.length} registro(s) importado(s); ${missingCompanies.length} empresa(s) legada(s) suspensa(s) criada(s)`);
   for (const [source, target] of Object.entries(sourceToTarget)) {
+    if (source === 'empresas') continue;
     const sourceRecords = exported.collections[source] ?? [];
     const records = sourceRecords.map((item) => recordFor(target, item));
     await upsert(target, records);

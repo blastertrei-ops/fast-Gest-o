@@ -66,3 +66,8 @@ create policy "company members can read audit logs" on public.audit_logs for sel
 create policy "masters can read company directory" on public.companies for select to authenticated using (app_private.jwt_is_master());
 create policy "masters can read master audit logs" on public.master_audit_logs for select to authenticated using (app_private.jwt_is_master());
 create policy "company members can read roles" on public.custom_roles for select to authenticated using (app_private.jwt_is_master() or company_id is null or company_id = app_private.jwt_company_id());
+
+-- The application talks to Supabase only through Railway during this migration.
+-- Grant the server role access without granting anything to anon or authenticated browser roles.
+grant usage on schema public to service_role;
+grant select, insert, update, delete on all tables in schema public to service_role;
