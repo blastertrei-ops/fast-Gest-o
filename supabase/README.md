@@ -7,8 +7,9 @@ Este diretório prepara o banco novo sem alterar o Firebase em produção. O Fir
 1. Aplique `migrations/202609010001_initial_tenant_schema.sql` no SQL Editor do projeto **fast-gestao-migracao**.
 2. Gere uma exportação privada do Firestore, fora do repositório: `npm run supabase:export-firestore -- --output=C:\\backup\\fast-gestao-firestore.json`.
 3. Valide a exportação antes de importar. Ela contém hashes de senha e dados de clientes; nunca a envie ao GitHub.
-4. Importe e compare as contagens por coleção e empresa.
-5. Só então o backend passa a usar Supabase em ambiente de teste. A produção permanece no Firebase até a aprovação final.
+4. Com `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` disponíveis apenas em ambiente seguro, importe: `npm run supabase:import -- --input=C:\\backup\\fast-gestao-firestore.json`.
+5. Compare as contagens por coleção e empresa.
+6. Só então o backend passa a usar Supabase em ambiente de teste. A produção permanece no Firebase até a aprovação final.
 
 ## Segurança
 
